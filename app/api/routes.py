@@ -96,6 +96,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
     events_list = []
     for event in events:
+        # Try watched listings first
         watched_ids_result = await db.execute(
             select(Listing.id)
             .join(UserWatch, UserWatch.listing_id == Listing.id)
@@ -105,7 +106,18 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         watched_listing_ids = watched_ids_result.scalars().all()
 
         lowest_price = None
-        for lid in watched_listing_ids:
+
+        # Check watched listings for latest snapshots
+        ids_to_check = watched_listing_ids if watched_listing_ids else []
+
+        # If no watched listings, fall back to all listings
+        if not ids_to_check:
+            all_ids_result = await db.execute(
+                select(Listing.id).where(Listing.event_id == event.id)
+            )
+            ids_to_check = all_ids_result.scalars().all()
+
+        for lid in ids_to_check:
             snap_result = await db.execute(
                 select(PriceSnapshot)
                 .where(PriceSnapshot.listing_id == lid)
@@ -249,6 +261,24 @@ async def add_event(
             last_seen_at=now,
         ))
 
+    # Save initial price snapshots for all listings
+    await db.flush()  # ensure all listing IDs are available
+
+    listings_result = await db.execute(
+        select(Listing).where(Listing.event_id == event.id)
+    )
+    saved_listings = listings_result.scalars().all()
+    listing_map = {l.name.strip().lower(): l.id for l in saved_listings}
+
+    for r in scraped_results:
+        lid = listing_map.get(r.name.strip().lower())
+        if lid:
+            db.add(PriceSnapshot(
+                listing_id=lid,
+                price=r.min_price,
+                scraped_at=now,
+            ))
+
     await db.commit()
     return RedirectResponse(url=f"/events/{event.id}", status_code=303)
 
@@ -326,6 +356,21 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": f"Scrape failed: {e}"})
 
     await _reconcile_listings(db, event_id, scraped_results)
+
+    listings_result = await db.execute(
+        select(Listing).where(Listing.event_id == event_id)
+    )
+    all_listings = listings_result.scalars().all()
+    listing_map = {l.name.strip().lower(): l.id for l in all_listings}
+
+    for r in scraped_results:
+        lid = listing_map.get(r.name.strip().lower())
+        if lid and r.min_price > 0:
+            db.add(PriceSnapshot(
+                listing_id=lid,
+                price=r.min_price,
+                scraped_at=datetime.now(timezone.utc),
+            ))
     await db.commit()
 
     return JSONResponse({
