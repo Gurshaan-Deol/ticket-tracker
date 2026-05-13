@@ -1,5 +1,5 @@
 .env
-data/db.sqlite3
+data/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,3 +10,4 @@ dist/
 build/
 .DS_Store
 CLAUDE.md
+scripts/api_dumps/
