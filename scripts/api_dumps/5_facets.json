@@ -1,0 +1,65 @@
+{
+  "schema": "urn:com.ticketmaster.services:schema:ismds:EventFacets:1.0",
+  "meta": {
+    "type": "urn:com.ticketmaster.services:type:ismds:EventFacets",
+    "modified": "2026-05-13T19:16:26.545016998Z",
+    "expires": "2026-05-13T19:17:26.545016998Z"
+  },
+  "eventId": "10006390B4647809",
+  "facets": [
+    {
+      "accessibility": [
+        "wheelchair"
+      ],
+      "ticketTypes": [
+        "SYU4JIWU2QU"
+      ],
+      "count": 9
+    },
+    {
+      "accessibility": [],
+      "ticketTypes": [
+        "SYU4JIWU2QU"
+      ],
+      "count": 657
+    },
+    {
+      "accessibility": [],
+      "ticketTypes": [
+        "0100C1800007"
+      ],
+      "count": 1
+    },
+    {
+      "accessibility": [],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 101
+    }
+  ],
+  "_links": {
+    "self": [
+      {
+        "href": "/host/10006390B4647809/facets/?by=accessibility+ticketTypes&q=available&exclusive=&available=true"
+      }
+    ],
+    "event": [
+      {
+        "href": "/event/10006390B4647809?exclusive="
+      }
+    ],
+    "accessibility": [
+      {
+        "href": "/host/10006390B4647809/accessibilities/{adaTypeCode}",
+        "templated": true
+      }
+    ],
+    "tickettype": [
+      {
+        "href": "/host/10006390B4647809/tickettypes/{ticketTypeId}?exclusive=",
+        "templated": true
+      }
+    ]
+  }
+}

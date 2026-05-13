@@ -1,0 +1,365 @@
+{
+  "schema": "urn:com.ticketmaster.services:schema:ismds:EventFacets:1.0",
+  "meta": {
+    "type": "urn:com.ticketmaster.services:type:ismds:EventFacets",
+    "modified": "2026-05-13T19:16:26.545016998Z",
+    "expires": "2026-05-13T19:17:26.545016998Z"
+  },
+  "eventId": "10006390B4647809",
+  "facets": [
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_100"
+      ],
+      "count": 2,
+      "places": [
+        "GEYDEV2DKI5FOQZSHI[YTS,ZDA]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_104"
+      ],
+      "count": 2,
+      "places": [
+        "GEZDIV2DKI5FOQZSHI[2A,ZQ]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_111"
+      ],
+      "count": 20,
+      "places": [
+        "IEYTU[M[J[THI[YTS,ZDA],WHI[YTS,ZDA],XHI[2A,YT[E,G,I,K],ZQ]],R[QHI[YQ,ZA],RHI[YQ,ZA],YHIYT[I,K]]],NJ2GE[YQ,ZA],OB2G[M,Q]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_108"
+      ],
+      "count": 44,
+      "places": [
+        "IEZDU[M[J[2GE[2A,ZQ],RHI[YT[M,O],ZD[K,M]],SHI[2[A,Q],YT[G,I]],UHIYT[K,M],VHI[4Q,YTA],WHI[YTS,ZD[A,G,I]],XHIZD[E,G]],R[QHIZD[I,K],THIYT[I,K,M,O],VHI[YQ,ZA],WHI[2Q,3A],XHIYT[I,K,M,O],YHI[YT[Q,S],ZD[A,C]]]],N[B2G[M,Q],R2G[I4Q,MYA],Z2G[E,I]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_105"
+      ],
+      "count": 26,
+      "places": [
+        "IEZTU[M[J[VHI4[A,Q],WHIZD[C,E],ZHIZD[K,M]],R[2G[I4Q,MYA],RHI[YT[Q,S],Z[DS,TA]],VHI[2Q,3A,ZD[A,C,E,G]]]],N[B2GI[3Q,4A],J2GE3[A,Q]],OB2G[E4[A,Q],I3[A,Q]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_107"
+      ],
+      "count": 10,
+      "places": [
+        "IE2DUMR[2GI3[A,Q],SHI[4Q,YT[A,C,E,S],ZDA],YHIZ[DS,TA]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_106"
+      ],
+      "count": 40,
+      "places": [
+        "IE2TU[M[J[QHIZ[DS,TA],RHI[2Q,3[A,Q],4[A,Q],YT[A,E,G],ZD[A,C]],SHI[YTS,ZD[A,M,O]],THI[2Q,3A],VHI[2A,ZQ],XHIZ[DS,TA]],R[2GI[2[A,Q],3A,ZQ],SHI[YT[K,M],ZD[I,K]],VHI[3Q,4[A,Q],YTA],YHI[YTS,ZDA]]],NZ2GI4[A,Q],OJ2GE4[A,Q]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_109"
+      ],
+      "count": 34,
+      "places": [
+        "IE3DU[M[J[2GI[3Q,4A],UHIZD[M,O,Q,S],XHIYT[Q,S],ZHI[YTS,ZDA]],R[2[GE[2Q,3A,YA],HE],QHIYT[Q,S],VHIYT[M,O],WHIYT[I,K],YHIZD[A,C]],Z[2[G[4,I3[A,Q]],HA],QHI[2Q,3A]]],N[J2GE[3Q,4A],Z2GE[2Q,3A]],OB2GI[3Q,4A]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_112"
+      ],
+      "count": 24,
+      "places": [
+        "IE3TU[M[J[VHI[2[A,Q],3[A,Q],4A,ZQ],WHIYT[E,G],XHIYT[G,I],YHIZD[C,E]],R[2GE[2Q,3A],RHI4[A,Q],THIZD[C,E],XHI3[A,Q],YHI[3Q,4A]]],OB2[GEYA,HE]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_116"
+      ],
+      "count": 8,
+      "places": [
+        "IIYTU[MRXHI[3Q,4A],NR2GE[2Q,3A],OJ2[G[EYA,U,Y],HE]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_118"
+      ],
+      "count": 16,
+      "places": [
+        "IIZDU[M[J[SHIZD[G,I,K,M],WHI4[A,Q],XHIZD[Q,S]],R2[GE[Y[A,Q],ZA],HE]],NJ2G[E[3Q,4A],I3[A,Q]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_113"
+      ],
+      "count": 6,
+      "places": [
+        "IIZTUM[JUHIYT[Q,S],R[RHIZD[O,Q],YHI4[A,Q]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_110"
+      ],
+      "count": 4,
+      "places": [
+        "II2DUMR[RHIYT[E,G],SHIYT[O,Q]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_114"
+      ],
+      "count": 12,
+      "places": [
+        "II2TUM[JUHI[3Q,4A],RUHIYT[G,I],Z[2G[E4Q,I[2A,Y[A,Q],Z[A,Q]]],QHI[2Q,3A]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_115"
+      ],
+      "count": 10,
+      "places": [
+        "II3DU[M[J[THIZD[K,M],YHIZD[G,I]],R2[G[4,Y],H[A,E]]],OB2GE[2Q,3A]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_117"
+      ],
+      "count": 4,
+      "places": [
+        "II3TUN[R2[GEYA,HE],Z2GE[3Q,4A]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_127"
+      ],
+      "count": 2,
+      "places": [
+        "IQYTUMJTHIYT[O,Q]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_85"
+      ],
+      "count": 4,
+      "places": [
+        "IUYTEMJ2[GEZDUMJ[U,V],HA5D[CMA,S]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_84"
+      ],
+      "count": 6,
+      "places": [
+        "IUYTEMR2G[M5DCM[I,Q],Y5D[C,E,Q,S]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_86"
+      ],
+      "count": 30,
+      "places": [
+        "IUYTEMZ2[G[45DCN[A,I],EZTUMR[W,X],I2DUMJ[Q,R,S,T],M4DUM[R[X,Y,Z],Z[Q,R,S]],Q5DCM[A,I],U[2DUM[RZ,ZQ],Y[DUO[A,I],TUM[J[X,Y,Z],R[Q,R,S]]]]],H[A5DEO[A,I],E5DEN[A,I]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_69"
+      ],
+      "count": 20,
+      "places": [
+        "IUYTENB2G[E[2DU[N[I,Q,Y],OA],YDUMR[W,X]],I[YTUMZ[R,S],ZDUMR[Y,Z]],M[4DUMR[R,S],5DC[NY,OA],ZDUM[I,Q]],Q3TU[MY,NA],UYTUMJ[V,W]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_70"
+      ],
+      "count": 18,
+      "places": [
+        "IUYTENJ2G[45D[CMA,S],E[YTUMJ[R,S],ZTU[M[J[R,S],Y],NA]],Q[5DCM[I,Q],YDU[NY,OA]],U[5D[C,E],ZDU[MJQ,NY,O[A,I]]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_125"
+      ],
+      "count": 2,
+      "places": [
+        "IUZTUMR2GE[2Q,3A]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_54"
+      ],
+      "count": 38,
+      "places": [
+        "K4YTAMJ2G[E[2TU[M[I,Q,Y],N[A,I,Q]],3TUM[I,Q],4DUM[I,Q],5D[CM[A,I,Q],S],ZTU[MJ[Q,R],N[Q,Y],O[A,I]]],I[2TUM[I,Q],3DUM[I,Q],5D[Q,S],ZDUMJ[R,S]],MYDUM[I,Q],Q[2TU[NY,OA],4TUMJ[R,S],YTUO[A,I]],UYDUMJ[R,S]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_63"
+      ],
+      "count": 18,
+      "places": [
+        "K4YTAMR2G[E[3TUMR[T,U],Y[DUMJ[Q,R],TU[MJQ,OI]]],I[5DEM[I,Q],ZDUMJ[S,T]],Q[4DUM[R[W,X],Z[R,S]],YTUMR[Y,Z]],UZTUMZ[R,S]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_65"
+      ],
+      "count": 14,
+      "places": [
+        "K4YTAMZ2G[E[2DUM[J[Y,Z],R[Q,R]],YDUMJ[R,S]],I2DUMR[X,Y],M[3TUMR[T,U],ZTUMZ[R,S]],U5DE[MY,NA]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_64"
+      ],
+      "count": 6,
+      "places": [
+        "K4YTANB2G[EZDUMR[S,T],M[2TUMR[R,S],3DUN[I,Q]]]"
+      ]
+    },
+    {
+      "inventoryTypes": [
+        "resale"
+      ],
+      "shapes": [
+        "s_67"
+      ],
+      "count": 16,
+      "places": [
+        "K4YTANJ2[G[E[5DEN[I,Q],YTU[MY,NA]],M3TUMZ[R,S],Q5DC[N[I,Q,Y],OA],U5DE[N[A,I],O[A,I]]],HE5DEN[Q,Y]]"
+      ]
+    }
+  ],
+  "_links": {
+    "self": [
+      {
+        "href": "/host/10006390B4647809/facets/?by=inventorytypes+++shape&show=places&q=and(available,inventorytypes:%22resale%22)&compress=places&available=true"
+      }
+    ],
+    "event": [
+      {
+        "href": "/event/10006390B4647809"
+      }
+    ],
+    "place": [
+      {
+        "href": "/host/10006390B4647809/places/{placeId}",
+        "templated": true
+      }
+    ]
+  }
+}

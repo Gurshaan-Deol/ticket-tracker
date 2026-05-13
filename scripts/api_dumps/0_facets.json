@@ -1,0 +1,532 @@
+{
+  "schema": "urn:com.ticketmaster.services:schema:ismds:EventFacets:1.0",
+  "meta": {
+    "type": "urn:com.ticketmaster.services:type:ismds:EventFacets",
+    "modified": "2026-05-13T19:15:26.096736770Z",
+    "expires": "2026-05-13T19:16:26.096736770Z"
+  },
+  "eventId": "10006390B4647809",
+  "facets": [
+    {
+      "areas": [
+        "1",
+        "5"
+      ],
+      "inventoryTypes": [
+        "resale"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [],
+      "priceLevelSecnames": [],
+      "ticketTypes": [
+        "SYU4JIWU2QU"
+      ],
+      "count": 149,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 215.28,
+          "max": 1144.08
+        }
+      ]
+    },
+    {
+      "areas": [
+        "0",
+        "5"
+      ],
+      "inventoryTypes": [
+        "resale"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [],
+      "priceLevelSecnames": [],
+      "ticketTypes": [
+        "SYU4JIWU2QU"
+      ],
+      "count": 134,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 157.68,
+          "max": 927.6
+        }
+      ]
+    },
+    {
+      "areas": [
+        "3",
+        "5"
+      ],
+      "inventoryTypes": [
+        "resale"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [],
+      "priceLevelSecnames": [],
+      "ticketTypes": [
+        "SYU4JIWU2QU"
+      ],
+      "count": 383,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 192.0,
+          "max": 1950.0
+        }
+      ]
+    },
+    {
+      "areas": [
+        "3",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [],
+      "priceLevelSecnames": [],
+      "ticketTypes": [
+        "0100C1800007"
+      ],
+      "count": 1,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 659.4,
+          "max": 659.4
+        }
+      ]
+    },
+    {
+      "areas": [
+        "0",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "65"
+      ],
+      "priceLevelSecnames": [
+        "P18"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 14,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 318.13,
+          "max": 318.13
+        }
+      ]
+    },
+    {
+      "areas": [
+        "0",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "59"
+      ],
+      "priceLevelSecnames": [
+        "P12"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 32,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 365.4,
+          "max": 365.4
+        }
+      ]
+    },
+    {
+      "areas": [
+        "0",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "58"
+      ],
+      "priceLevelSecnames": [
+        "P11"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 22,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 401.4,
+          "max": 401.4
+        }
+      ]
+    },
+    {
+      "areas": [
+        "0",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "61"
+      ],
+      "priceLevelSecnames": [
+        "P14"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 1,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 318.13,
+          "max": 318.13
+        }
+      ]
+    },
+    {
+      "areas": [
+        "1",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "59"
+      ],
+      "priceLevelSecnames": [
+        "P12"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 31,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 365.4,
+          "max": 365.4
+        }
+      ]
+    },
+    {
+      "areas": [
+        "1",
+        "5"
+      ],
+      "inventoryTypes": [
+        "primary"
+      ],
+      "offerTypes": [
+        "standard"
+      ],
+      "priceLevels": [
+        "60"
+      ],
+      "priceLevelSecnames": [
+        "P13"
+      ],
+      "ticketTypes": [
+        "000000000001"
+      ],
+      "count": 1,
+      "totalPriceRange": [
+        {
+          "currency": "CAD",
+          "min": 255.63,
+          "max": 255.63
+        }
+      ]
+    }
+  ],
+  "_links": {
+    "self": [
+      {
+        "href": "/host/10006390B4647809/facets/?by=inventorytypes+offertypes+area+tickettype+priceLevels&show=totalpricerange&q=available&available=true"
+      }
+    ],
+    "event": [
+      {
+        "href": "/event/10006390B4647809"
+      }
+    ],
+    "area": [
+      {
+        "href": "/host/10006390B4647809/areas/{areaId}",
+        "templated": true
+      }
+    ],
+    "tickettype": [
+      {
+        "href": "/host/10006390B4647809/tickettypes/{ticketTypeId}",
+        "templated": true
+      }
+    ]
+  },
+  "_embedded": {
+    "area": [
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:EventArea:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:EventArea",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "areaId": "0",
+        "areaType": "zone",
+        "name": "EAST",
+        "description": "East Grandstand",
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/areas/0"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      },
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:EventArea:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:EventArea",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "areaId": "1",
+        "areaType": "zone",
+        "name": "WEST",
+        "description": "West Grandstand",
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/areas/1"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      },
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:EventArea:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:EventArea",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "areaId": "3",
+        "areaType": "zone",
+        "name": "FLOOR",
+        "description": "Reserved Floor Seating",
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/areas/3"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      },
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:EventArea:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:EventArea",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "areaId": "5",
+        "areaType": "descriptive",
+        "name": "RESV",
+        "description": "Reserved Seating",
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/areas/5"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      }
+    ],
+    "tickettype": [
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:TicketType:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:TicketType",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "ticketTypeId": "000000000001",
+        "name": "Standard Ticket",
+        "description": null,
+        "additionalDescription": null,
+        "inventoryType": "primary",
+        "offerType": "standard",
+        "rank": 0,
+        "sellableQuantities": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "discountNumber": 1,
+        "type": null,
+        "branding": [],
+        "rollup": false,
+        "protected": false,
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/tickettypes/000000000001"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      },
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:TicketType:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:TicketType",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "ticketTypeId": "0100C1800007",
+        "unsoldQualifier": "PLATINUM2AVAIL",
+        "name": "Standard Ticket",
+        "description": null,
+        "additionalDescription": null,
+        "inventoryType": "primary",
+        "offerType": "standard",
+        "rank": 0,
+        "sellableQuantities": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "discountNumber": 62,
+        "type": null,
+        "branding": [],
+        "rollup": false,
+        "protected": false,
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/tickettypes/0100C1800007"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      },
+      {
+        "schema": "urn:com.ticketmaster.services:schema:ismds:TicketType:1.0",
+        "meta": {
+          "type": "urn:com.ticketmaster.services:type:ismds:TicketType",
+          "modified": "2026-05-13T19:15:26.096736770Z",
+          "expires": "2026-05-13T19:25:26.096736770Z"
+        },
+        "eventId": "10006390B4647809",
+        "ticketTypeId": "SYU4JIWU2QU",
+        "name": "Resale Tickets",
+        "description": null,
+        "additionalDescription": null,
+        "inventoryType": "resale",
+        "offerType": "standard",
+        "rank": 0,
+        "sellableQuantities": null,
+        "discountNumber": null,
+        "type": null,
+        "branding": [],
+        "rollup": false,
+        "protected": false,
+        "_links": {
+          "self": [
+            {
+              "href": "/host/10006390B4647809/tickettypes/SYU4JIWU2QU"
+            }
+          ],
+          "event": [
+            {
+              "href": "/event/10006390B4647809"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
