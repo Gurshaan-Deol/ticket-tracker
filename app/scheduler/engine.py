@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import scrape_event
+from app.scraper.ticketmaster import scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -81,7 +81,9 @@ async def run_watch_job(watch_id: int) -> None:
 
         # Step 5: Scrape
         try:
-            scraped_results, _ = await scrape_event(event.ticketmaster_url)
+            scraped_results, _ = await asyncio.get_event_loop().run_in_executor(
+                None, scrape_event_sync, event.ticketmaster_url
+            )
         except Exception as e:
             logger.error("Scrape failed for watch %d: %s", watch_id, e)
             return
@@ -150,12 +152,12 @@ async def run_watch_job(watch_id: int) -> None:
                     .limit(1)
                 )
                 if not recent_result.scalar_one_or_none():
-                    await fire_alert(watch, listing, event, current_price)
+                    channels_used = await fire_alert(watch, listing, event, current_price)
                     session.add(AlertLog(
                         listing_id=listing.id,
                         price_at_alert=current_price,
                         alerted_at=now,
-                        channels_used="stub",
+                        channels_used=channels_used,
                     ))
         else:
             logger.info(
@@ -172,9 +174,20 @@ async def run_watch_job(watch_id: int) -> None:
         await session.close()
 
 
-async def fire_alert(watch, listing, event, price: float) -> None:
-    # TODO: wire to notifier in Phase 4
-    logger.info(
-        f"ALERT (stub): {listing.name} on {event.name} dropped to ${price:.2f} "
-        f"(target: ${watch.target_price:.2f})"
+async def fire_alert(watch, listing, event, price: float) -> str:
+    from app.notifier import get_notifier_manager
+    manager = get_notifier_manager()
+
+    message = (
+        f"🎟 <b>Price Drop Alert</b>\n\n"
+        f"<b>Event:</b> {event.name}\n"
+        f"<b>Section:</b> {listing.name}\n"
+        f"<b>Price:</b> ${price:.2f}\n"
+        f"<b>Your target:</b> ${watch.target_price:.2f}\n\n"
+        f"<a href='{event.ticketmaster_url}'>View on Ticketmaster</a>"
     )
+
+    channels = manager.channel_names
+    await manager.send_all(message)
+    logger.info("Alert sent via %s for %s @ $%.2f", channels, listing.name, price)
+    return ",".join(channels) if channels else "none"

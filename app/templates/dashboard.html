@@ -1,3 +1,145 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
-{% block content %}<h1>Dashboard</h1>{% endblock %}
+{% block title %}Dashboard — Ticket Tracker{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Tracked Events</h1>
+  <button id="toggle-add-form"
+          class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+    + Add Event
+  </button>
+</div>
+
+<!-- Add Event Panel -->
+<div id="add-form-panel" class="hidden mb-6 p-5 bg-gray-900 rounded-lg border border-gray-700">
+  <form id="add-event-form" method="POST" action="/events/add" class="flex flex-col gap-3">
+    <label class="text-sm text-gray-400 font-medium">Ticketmaster URL</label>
+    <input type="url" name="url" required
+           placeholder="https://www.ticketmaster.ca/..."
+           class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
+                  focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500">
+    <div class="flex items-center gap-4">
+      <button type="submit" id="add-submit-btn"
+              class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg
+                     text-sm font-medium transition disabled:opacity-50">
+        Track Event
+      </button>
+      <span class="text-xs text-gray-500">Initial scrape may take 1–2 minutes</span>
+    </div>
+  </form>
+</div>
+
+<!-- Events List -->
+{% if not events %}
+<div class="text-center py-20 text-gray-600">
+  <p class="text-lg">No events tracked yet.</p>
+  <p class="text-sm mt-2">Add a Ticketmaster URL above to get started.</p>
+</div>
+{% else %}
+<div class="flex flex-col gap-3" id="events-list">
+  {% for e in events %}
+  <div id="event-card-{{ e.id }}"
+       class="p-4 bg-gray-900 rounded-lg border border-gray-700
+              flex items-center justify-between gap-4 transition
+              {{ 'opacity-40' if not e.is_active else '' }}">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="font-semibold">{{ e.name }}</span>
+        {% if not e.is_active %}
+        <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
+        {% endif %}
+      </div>
+      <div class="text-sm text-gray-500 mt-0.5">
+        {% if e.venue %}{{ e.venue }}{% endif %}
+        {% if e.venue and e.event_date %} · {% endif %}
+        {% if e.event_date %}{{ e.event_date }}{% endif %}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+      {% if e.lowest_price is not none %}
+      <span class="font-mono text-sm text-green-400 bg-green-950 border border-green-900 px-2 py-1 rounded">
+        ${{ "%.2f" | format(e.lowest_price) }}
+      </span>
+      {% else %}
+      <span class="text-xs text-gray-600">No watches set</span>
+      {% endif %}
+
+      <a href="/events/{{ e.id }}"
+         class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition">
+        View
+      </a>
+      <button class="pause-btn text-sm px-3 py-1.5 rounded transition
+                     {{ 'bg-yellow-800 hover:bg-yellow-700' if e.is_active else 'bg-gray-700 hover:bg-gray-600' }} text-white"
+              data-event-id="{{ e.id }}"
+              data-is-active="{{ 'true' if e.is_active else 'false' }}">
+        {{ 'Pause' if e.is_active else 'Resume' }}
+      </button>
+      <button class="delete-btn bg-red-900 hover:bg-red-800 text-white px-3 py-1.5 rounded text-sm transition"
+              data-event-id="{{ e.id }}">
+        Delete
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+  // Toggle add-event form
+  document.getElementById('toggle-add-form').addEventListener('click', function () {
+    document.getElementById('add-form-panel').classList.toggle('hidden');
+  });
+
+  // Loading state on form submit
+  document.getElementById('add-event-form').addEventListener('submit', function () {
+    const btn = document.getElementById('add-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Scraping…';
+  });
+
+  // Pause / Resume
+  document.querySelectorAll('.pause-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const eventId = this.dataset.eventId;
+      try {
+        const resp = await fetch('/events/' + eventId + '/toggle', { method: 'POST' });
+        const data = await resp.json();
+        const card = document.getElementById('event-card-' + eventId);
+        const isNowActive = data.is_active;
+        this.textContent = isNowActive ? 'Pause' : 'Resume';
+        this.dataset.isActive = isNowActive ? 'true' : 'false';
+        if (isNowActive) {
+          card.classList.remove('opacity-40');
+          // remove Paused badge if present
+          const badge = card.querySelector('[data-paused-badge]');
+          if (badge) badge.remove();
+        } else {
+          card.classList.add('opacity-40');
+        }
+      } catch (e) {
+        alert('Failed to toggle: ' + e.message);
+      }
+    });
+  });
+
+  // Delete
+  document.querySelectorAll('.delete-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('Delete this event and all its tracked data?')) return;
+      const eventId = this.dataset.eventId;
+      try {
+        const resp = await fetch('/events/' + eventId, { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.deleted) {
+          document.getElementById('event-card-' + eventId).remove();
+        }
+      } catch (e) {
+        alert('Failed to delete: ' + e.message);
+      }
+    });
+  });
+</script>
+
+{% endblock %}

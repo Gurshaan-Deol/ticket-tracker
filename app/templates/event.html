@@ -1,3 +1,329 @@
 {% extends "base.html" %}
-{% block title %}Event{% endblock %}
-{% block content %}<h1>Event</h1>{% endblock %}
+{% block title %}{{ event.name }} — Ticket Tracker{% endblock %}
+
+{% block extra_head %}
+<script>const AI_ENABLED = {{ 'true' if ai_enabled else 'false' }};</script>
+{% endblock %}
+
+{% block content %}
+
+<!-- Breadcrumb -->
+<a href="/" class="text-sm text-gray-500 hover:text-gray-300 transition">← Back to Dashboard</a>
+
+<!-- Event Header -->
+<div class="mt-4 mb-8">
+  <div class="flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <h1 class="text-3xl font-bold">{{ event.name }}</h1>
+      <div class="mt-1 text-sm text-gray-400 flex items-center gap-3 flex-wrap">
+        {% if event.venue %}<span>{{ event.venue }}</span>{% endif %}
+        {% if event.venue and event.event_date %}<span class="text-gray-600">·</span>{% endif %}
+        {% if event.event_date %}<span>{{ event.event_date }}</span>{% endif %}
+        <a href="{{ event.ticketmaster_url }}" target="_blank" rel="noopener"
+           class="text-green-400 hover:text-green-300 transition">
+          View on Ticketmaster ↗
+        </a>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if not event.is_active %}
+      <span class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full">Paused</span>
+      {% endif %}
+      <button id="scrape-btn"
+              class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm transition">
+        Scrape Now
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Listings Table -->
+{% if listings %}
+<div class="overflow-x-auto rounded-lg border border-gray-800">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
+        <th class="px-4 py-3 font-medium">Section</th>
+        <th class="px-4 py-3 font-medium">Status</th>
+        <th class="px-4 py-3 font-medium">Current Price</th>
+        <th class="px-4 py-3 font-medium">Your Target</th>
+        <th class="px-4 py-3 font-medium">Interval</th>
+        <th class="px-4 py-3 font-medium">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in listings %}
+      <!-- Main listing row -->
+      <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}">
+        <td class="px-4 py-3 font-medium">{{ l.name }}</td>
+        <td class="px-4 py-3">
+          {% if l.is_available %}
+          <span class="text-xs bg-green-950 text-green-400 border border-green-900 px-2 py-0.5 rounded-full">
+            Available
+          </span>
+          {% else %}
+          <span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
+            Unavailable
+          </span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 font-mono text-gray-200">
+          {% if l.current_price is not none %}${{ "%.2f" | format(l.current_price) }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3 font-mono {% if l.watch %}text-green-400{% else %}text-gray-600{% endif %}">
+          {% if l.watch %}${{ "%.2f" | format(l.watch.target_price) }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-400">
+          {% if l.watch %}{{ l.watch.refresh_interval_minutes }}m{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex gap-2 flex-wrap">
+            <button class="set-watch-btn text-xs bg-green-800 hover:bg-green-700 text-white px-2 py-1 rounded transition"
+                    data-listing-id="{{ l.id }}">
+              Set Watch
+            </button>
+            {% if l.watch %}
+            <button class="remove-watch-btn text-xs bg-red-900 hover:bg-red-800 text-white px-2 py-1 rounded transition"
+                    data-listing-id="{{ l.id }}">
+              Remove
+            </button>
+            {% endif %}
+            {% if ai_enabled and l.snapshot_count >= 5 %}
+            <button class="ai-summary-btn text-xs bg-indigo-900 hover:bg-indigo-800 text-white px-2 py-1 rounded transition"
+                    data-listing-id="{{ l.id }}">
+              AI Summary
+            </button>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+
+      <!-- Watch form row (hidden by default) -->
+      <tr class="border-b border-gray-800 bg-gray-900/60 hidden" id="watch-form-{{ l.id }}">
+        <td colspan="6" class="px-4 py-4">
+          <form class="save-watch-form flex flex-wrap gap-4 items-end" data-listing-id="{{ l.id }}">
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Target Price ($)</label>
+              <input type="number" name="target_price" step="0.01" min="0.01" required
+                     value="{{ l.watch.target_price if l.watch else '' }}"
+                     placeholder="e.g. 150.00"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-32
+                            focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Check every (min)</label>
+              <input type="number" name="refresh_interval_minutes" min="5" required
+                     value="{{ l.watch.refresh_interval_minutes if l.watch else 30 }}"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
+                            focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Alert cooldown (min)</label>
+              <input type="number" name="alert_cooldown_minutes" min="5" required
+                     value="{{ l.watch.alert_cooldown_minutes if l.watch else 60 }}"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
+                            focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex gap-2">
+              <button type="submit"
+                      class="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm transition">
+                Save
+              </button>
+              <button type="button"
+                      class="cancel-watch-btn bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition"
+                      data-listing-id="{{ l.id }}">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </td>
+      </tr>
+
+      <!-- AI summary row (only when AI enabled and enough snapshots) -->
+      {% if ai_enabled and l.snapshot_count >= 5 %}
+      <tr class="border-b border-gray-800 hidden" id="ai-row-{{ l.id }}">
+        <td colspan="6" class="px-4 pb-3 pt-1">
+          <p id="ai-summary-{{ l.id }}" class="text-sm text-gray-400 italic leading-relaxed"></p>
+        </td>
+      </tr>
+      {% endif %}
+
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-center text-gray-600 py-12">
+  No listings found yet. Click <strong class="text-gray-400">Scrape Now</strong> to load listings.
+</p>
+{% endif %}
+
+<!-- Price History Charts -->
+{% if snapshot_chart_data %}
+<script type="application/json" id="snapshot-data">{{ snapshot_chart_data | tojson }}</script>
+
+<h2 class="text-lg font-semibold mt-12 mb-4 text-gray-300">Price History</h2>
+<div class="flex flex-col gap-6">
+  {% for item in snapshot_chart_data %}
+  <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+    <h3 class="text-sm font-medium text-gray-400 mb-3">{{ item.name }}</h3>
+    <canvas id="chart-{{ item.listing_id }}" height="80"></canvas>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+  // ── Scrape Now ──────────────────────────────────────────────────────────────
+  document.getElementById('scrape-btn').addEventListener('click', async function () {
+    this.textContent = 'Scraping…';
+    this.disabled = true;
+    try {
+      const resp = await fetch('/events/{{ event.id }}/scrape');
+      const data = await resp.json();
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        alert('Scrape failed: ' + (data.error || 'unknown error'));
+        this.textContent = 'Scrape Now';
+        this.disabled = false;
+      }
+    } catch (e) {
+      alert('Scrape failed: ' + e.message);
+      this.textContent = 'Scrape Now';
+      this.disabled = false;
+    }
+  });
+
+  // ── Set Watch form toggle ────────────────────────────────────────────────────
+  document.querySelectorAll('.set-watch-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.listingId;
+      const row = document.getElementById('watch-form-' + id);
+      row.classList.toggle('hidden');
+    });
+  });
+
+  document.querySelectorAll('.cancel-watch-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('watch-form-' + this.dataset.listingId).classList.add('hidden');
+    });
+  });
+
+  // ── Save Watch ───────────────────────────────────────────────────────────────
+  document.querySelectorAll('.save-watch-form').forEach(function (form) {
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const id = this.dataset.listingId;
+      try {
+        const resp = await fetch('/listings/' + id + '/watch', {
+          method: 'POST',
+          body: new FormData(this),
+        });
+        if (resp.ok) {
+          window.location.reload();
+        } else {
+          const data = await resp.json();
+          alert('Failed to save watch: ' + (data.detail || 'unknown error'));
+        }
+      } catch (e) {
+        alert('Failed to save watch: ' + e.message);
+      }
+    });
+  });
+
+  // ── Remove Watch ─────────────────────────────────────────────────────────────
+  document.querySelectorAll('.remove-watch-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('Remove watch for this listing?')) return;
+      const id = this.dataset.listingId;
+      try {
+        const resp = await fetch('/listings/' + id + '/watch', { method: 'DELETE' });
+        if (resp.ok) window.location.reload();
+      } catch (e) {
+        alert('Failed to remove watch: ' + e.message);
+      }
+    });
+  });
+
+  // ── AI Summary ───────────────────────────────────────────────────────────────
+  if (AI_ENABLED) {
+    document.querySelectorAll('.ai-summary-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const id = this.dataset.listingId;
+        const origText = this.textContent;
+        this.textContent = 'Summarizing…';
+        this.disabled = true;
+        try {
+          const resp = await fetch('/listings/' + id + '/summarize', { method: 'POST' });
+          const data = await resp.json();
+          const summaryEl = document.getElementById('ai-summary-' + id);
+          const aiRow = document.getElementById('ai-row-' + id);
+          summaryEl.textContent = data.summary || 'No summary available.';
+          aiRow.classList.remove('hidden');
+        } catch (e) {
+          alert('AI summary failed: ' + e.message);
+        }
+        this.textContent = origText;
+        this.disabled = false;
+      });
+    });
+  }
+
+  // ── Chart.js ─────────────────────────────────────────────────────────────────
+  const snapshotEl = document.getElementById('snapshot-data');
+  if (snapshotEl) {
+    const chartItems = JSON.parse(snapshotEl.textContent);
+    chartItems.forEach(function (item) {
+      const canvas = document.getElementById('chart-' + item.listing_id);
+      if (!canvas) return;
+
+      const labels = item.snapshots.map(function (s) {
+        const d = new Date(s.scraped_at);
+        const date = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+        const time = d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false });
+        return date + ' ' + time;
+      });
+      const prices = item.snapshots.map(function (s) { return s.price; });
+
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: prices,
+            borderColor: '#4ade80',
+            backgroundColor: 'rgba(74, 222, 128, 0.06)',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: '#4ade80',
+            tension: 0.3,
+            fill: true,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+          },
+          scales: {
+            x: {
+              ticks: { color: '#6b7280', maxTicksLimit: 8, font: { size: 11 } },
+              grid: { color: '#1f2937' },
+            },
+            y: {
+              ticks: {
+                color: '#6b7280',
+                font: { size: 11 },
+                callback: function (v) { return '$' + v.toFixed(2); },
+              },
+              grid: { color: '#1f2937' },
+            },
+          },
+        },
+      });
+    });
+  }
+</script>
+
+{% endblock %}

@@ -1,5 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>{% block title %}Ticket Tracker{% endblock %}</title></head>
-<body>{% block content %}{% endblock %}</body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Ticket Tracker{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <nav class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+    <a href="/" class="text-xl font-bold tracking-tight">🎟 Ticket Tracker</a>
+    <span class="text-sm text-gray-500">Self-hosted price monitor</span>
+  </nav>
+  <main class="max-w-5xl mx-auto px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+</body>
 </html>

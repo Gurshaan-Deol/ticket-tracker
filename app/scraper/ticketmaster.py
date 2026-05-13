@@ -1,6 +1,8 @@
+import asyncio
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, Tag
@@ -41,6 +43,26 @@ _NAME_CHILD_SELECTORS = [
 class ListingResult:
     name: str
     min_price: float
+
+
+_executor = ThreadPoolExecutor(max_workers=1)
+
+
+def scrape_event_sync(url: str) -> tuple[list[ListingResult], int]:
+    """
+    Run scrape_event in a dedicated thread with its own event loop.
+    Use this when calling from FastAPI routes to avoid event loop conflicts.
+    """
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(scrape_event(url))
+        finally:
+            loop.close()
+
+    future = _executor.submit(_run)
+    return future.result(timeout=300)
 
 
 # ---------------------------------------------------------------------------
