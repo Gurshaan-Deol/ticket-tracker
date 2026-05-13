@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,7 +14,7 @@ class Event(Base):
     venue: Mapped[str | None] = mapped_column(String, nullable=True)
     event_date: Mapped[str | None] = mapped_column(String, nullable=True)
     ticketmaster_url: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
@@ -54,7 +54,7 @@ class PriceSnapshot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     listing_id: Mapped[int] = mapped_column(Integer, ForeignKey("listings.id"), nullable=False)
     price: Mapped[float] = mapped_column(Float, nullable=False)
-    scraped_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    scraped_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="snapshots")
 
@@ -65,7 +65,7 @@ class AlertLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     listing_id: Mapped[int] = mapped_column(Integer, ForeignKey("listings.id"), nullable=False)
     price_at_alert: Mapped[float] = mapped_column(Float, nullable=False)
-    alerted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    alerted_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     channels_used: Mapped[str] = mapped_column(String, nullable=False)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="alert_logs")
