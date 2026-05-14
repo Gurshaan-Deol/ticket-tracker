@@ -43,18 +43,20 @@
   <table class="w-full text-sm">
     <thead>
       <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium">Section</th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort-col="section">Section <span class="sort-arrow text-gray-500" style="display:inline-block;width:1ch;text-align:center"></span></th>
         <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium">Current Price</th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort-col="price">Current Price <span class="sort-arrow text-gray-300" style="display:inline-block;width:1ch;text-align:center">↑</span></th>
         <th class="px-4 py-3 font-medium">Your Target</th>
         <th class="px-4 py-3 font-medium">Interval</th>
         <th class="px-4 py-3 font-medium">Actions</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="listings-tbody">
       {% for l in listings %}
       <!-- Main listing row -->
-      <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}">
+      <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}"
+          data-section="{{ l.name }}"
+          data-price="{{ l.current_price if l.current_price is not none else 999999 }}">
         <td class="px-4 py-3 font-medium">{{ l.name }}</td>
         <td class="px-4 py-3">
           {% if l.is_available %}
@@ -269,6 +271,70 @@
       });
     });
   }
+
+  // ── Table Sort ───────────────────────────────────────────────────────────────
+  var sortCol = 'price';
+  var sortDir = 'asc';
+
+  function applySort() {
+    var tbody = document.getElementById('listings-tbody');
+    if (!tbody) return;
+
+    var mainRows = Array.from(tbody.querySelectorAll('tr[data-section]'));
+
+    mainRows.sort(function (a, b) {
+      var aPrice = parseFloat(a.dataset.price);
+      var bPrice = parseFloat(b.dataset.price);
+
+      if (sortCol === 'price') {
+        var aNoPrice = aPrice >= 999999;
+        var bNoPrice = bPrice >= 999999;
+        if (aNoPrice && bNoPrice) return 0;
+        if (aNoPrice) return 1;
+        if (bNoPrice) return -1;
+        return sortDir === 'asc' ? aPrice - bPrice : bPrice - aPrice;
+      }
+
+      // section sort
+      var aVal = a.dataset.section.toLowerCase();
+      var bVal = b.dataset.section.toLowerCase();
+      var cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    mainRows.forEach(function (mainRow) {
+      var listingId = mainRow.id.replace('listing-row-', '');
+      tbody.appendChild(mainRow);
+      var formRow = document.getElementById('watch-form-' + listingId);
+      if (formRow) tbody.appendChild(formRow);
+      var aiRow = document.getElementById('ai-row-' + listingId);
+      if (aiRow) tbody.appendChild(aiRow);
+    });
+
+    document.querySelectorAll('th[data-sort-col]').forEach(function (th) {
+      var arrow = th.querySelector('.sort-arrow');
+      if (th.dataset.sortCol === sortCol) {
+        arrow.textContent = sortDir === 'asc' ? ' ↑' : ' ↓';
+      } else {
+        arrow.textContent = '';
+      }
+    });
+  }
+
+  document.querySelectorAll('th[data-sort-col]').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var col = this.dataset.sortCol;
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      applySort();
+    });
+  });
+
+  applySort();
 
   // ── Chart.js ─────────────────────────────────────────────────────────────────
   const snapshotEl = document.getElementById('snapshot-data');
