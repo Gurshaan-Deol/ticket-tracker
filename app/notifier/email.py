@@ -27,16 +27,30 @@ class EmailNotifier(BaseNotifier):
         return bool(self.smtp_user and self.smtp_password and self.to_address)
 
     async def send(self, message: str) -> None:
-        def _send_sync() -> None:
-            msg = MIMEText(message, "plain")
+        def _send_sync():
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            msg = MIMEMultipart("alternative")
             msg["Subject"] = "Ticket Price Alert"
             msg["From"] = self.smtp_user
             msg["To"] = self.to_address
+            msg.attach(MIMEText(message, "plain"))
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as smtp:
-                smtp.starttls()
-                smtp.login(self.smtp_user, self.smtp_password)
-                smtp.sendmail(self.smtp_user, self.to_address, msg.as_string())
+            if self.smtp_port == 465:
+                # SSL connection
+                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=15) as server:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_user, self.to_address, msg.as_string())
+            else:
+                # STARTTLS connection (port 587)
+                with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_user, self.to_address, msg.as_string())
 
         try:
             loop = asyncio.get_event_loop()
