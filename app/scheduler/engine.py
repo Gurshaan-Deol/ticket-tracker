@@ -38,6 +38,7 @@ def schedule_watch_job(watch: UserWatch) -> None:
         id=job_id,
         args=[watch.id],
         replace_existing=True,
+        misfire_grace_time=300,
     )
     logger.info("Scheduled job %s (every %d min)", job_id, watch.refresh_interval_minutes)
 
@@ -52,6 +53,7 @@ def remove_watch_job(watch_id: int) -> None:
 
 
 async def run_watch_job(watch_id: int) -> None:
+    logger.info("run_watch_job started")
     session = AsyncSessionLocal()
     try:
         # Load watch first to get interval for jitter calculation
@@ -144,7 +146,7 @@ async def run_watch_job(watch_id: int) -> None:
             ))
 
             # Step 9: Alert check — only after at least one prior snapshot exists
-            if previous_snapshot and current_price < watch.target_price:
+            if current_price < watch.target_price:
                 cooldown_cutoff = now - timedelta(minutes=watch.alert_cooldown_minutes)
                 recent_result = await session.execute(
                     select(AlertLog)
