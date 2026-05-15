@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertLog, Event, Listing, PriceSnapshot, RawOffer, UserWatch
+from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
 from app.scraper.ticketmaster import scrape_event as _scrape, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import remove_watch_job, schedule_watch_job, scheduler
 
@@ -265,7 +265,7 @@ async def add_event(
     try:
         loop = asyncio.get_event_loop()
         # quantity=None → unfiltered scrape; discovers all listings and available quantities
-        scraped_results, available_quantities, raw_offers = await loop.run_in_executor(None, _scrape_sync, url)
+        scraped_results, available_quantities = await loop.run_in_executor(None, _scrape_sync, url)
     except Exception as e:
         import traceback
         logger.error(f"Add event failed: {e}\n{traceback.format_exc()}")
@@ -318,16 +318,6 @@ async def add_event(
                 scraped_at=now,
             ))
 
-    for raw in raw_offers:
-        db.add(RawOffer(
-            event_id=event.id,
-            section=raw.section,
-            list_price=raw.list_price,
-            sellable_quantities=raw.sellable_quantities,
-            scraped_at=now,
-            inventory_type=raw.inventory_type,
-        ))
-
     await db.commit()
     return RedirectResponse(url=f"/events/{event.id}/setup", status_code=303)
 
@@ -350,64 +340,47 @@ async def update_quantity(
             content={"error": f"Quantity {quantity} is not available for this event"},
         )
 
-    quantity = int(quantity)
-
-    # Filter raw offers locally — no re-scrape needed
-    raw_result = await db.execute(
-        select(RawOffer).where(RawOffer.event_id == event_id)
-    )
-    all_raw = raw_result.scalars().all()
-
-    filtered: dict[str, float] = {}
-    for raw in all_raw:
-        sq_str = raw.sellable_quantities.strip()
-        if sq_str != "any" and sq_str:
-            sq = [int(q) for q in sq_str.split(",") if q.strip()]
-            if quantity not in sq:
-                continue
-        # "any" or empty — include for all quantities
-        key = raw.section.strip().lower()
-        if key not in filtered or raw.list_price < filtered[key]:
-            filtered[key] = raw.list_price
-
-    # Delete old snapshots so stale prices don't show
-    all_listing_ids_result = await db.execute(
-        select(Listing.id).where(Listing.event_id == event_id)
-    )
-    all_listing_ids = all_listing_ids_result.scalars().all()
-    if all_listing_ids:
-        await db.execute(
-            delete(PriceSnapshot).where(PriceSnapshot.listing_id.in_(all_listing_ids))
-        )
-
-    now = datetime.now(timezone.utc)
-    listings_result = await db.execute(
-        select(Listing).where(Listing.event_id == event_id)
-    )
-    existing_listings = listings_result.scalars().all()
-    listing_map = {lst.name.strip().lower(): lst for lst in existing_listings}
-
-    for section_key, price in filtered.items():
-        listing = listing_map.get(section_key)
-        if listing:
-            listing.is_available = True
-            listing.last_seen_at = now
-            db.add(PriceSnapshot(
-                listing_id=listing.id,
-                price=price,
-                scraped_at=now,
-            ))
-
-    for key, listing in listing_map.items():
-        if key not in filtered:
-            listing.is_available = False
-
-    logger.info(
-        "Quantity set to %d for event %d — %d section(s) matched from %d raw offers",
-        quantity, event_id, len(filtered), len(all_raw),
-    )
-
     event.quantity = quantity
+    await db.flush()
+
+    # Re-scrape filtered by the chosen quantity so stored prices reflect real availability
+    try:
+        loop = asyncio.get_event_loop()
+        scraped_results, _ = await loop.run_in_executor(None, _scrape_sync, event.ticketmaster_url, quantity)
+    except Exception as e:
+        logger.error("Quantity scrape failed for event %d: %s", event_id, e)
+        scraped_results = []
+
+    if scraped_results:
+        now = datetime.now(timezone.utc)
+        listings_result = await db.execute(select(Listing).where(Listing.event_id == event_id))
+        all_listings = listings_result.scalars().all()
+        listing_map = {l.name.strip().lower(): l.id for l in all_listings}
+
+        # Get all listing IDs for this event
+        all_listing_ids_result = await db.execute(
+            select(Listing.id).where(Listing.event_id == event_id)
+        )
+        all_listing_ids = all_listing_ids_result.scalars().all()
+
+        # Delete old snapshots so stale unfiltered prices don't show
+        if all_listing_ids:
+            from sqlalchemy import delete
+            await db.execute(
+                delete(PriceSnapshot).where(PriceSnapshot.listing_id.in_(all_listing_ids))
+            )
+
+        logger.info(f"Quantity set to {quantity} for event {event_id} — deleted old snapshots, saving {len(scraped_results)} new ones")
+
+        for r in scraped_results:
+            lid = listing_map.get(r.name.strip().lower())
+            if lid and r.min_price > 0:
+                db.add(PriceSnapshot(
+                    listing_id=lid,
+                    price=r.min_price,
+                    scraped_at=now,
+                ))
+
     await db.commit()
     return RedirectResponse(url=f"/events/{event_id}", status_code=303)
 
@@ -465,8 +438,6 @@ async def delete_event(event_id: int, db: AsyncSession = Depends(get_db)):
         await db.execute(delete(UserWatch).where(UserWatch.listing_id.in_(listing_ids)))
         await db.execute(delete(Listing).where(Listing.event_id == event_id))
 
-    await db.execute(delete(RawOffer).where(RawOffer.event_id == event_id))
-
     await db.delete(event)
     await db.commit()
     return JSONResponse({"deleted": True})
@@ -481,7 +452,7 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         loop = asyncio.get_event_loop()
-        scraped_results, _, raw_offers = await loop.run_in_executor(
+        scraped_results, _ = await loop.run_in_executor(
             None, _scrape_sync, event.ticketmaster_url, event.quantity
         )
     except Exception as e:
@@ -496,28 +467,14 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
     all_listings = listings_result.scalars().all()
     listing_map = {l.name.strip().lower(): l.id for l in all_listings}
 
-    now = datetime.now(timezone.utc)
     for r in scraped_results:
         lid = listing_map.get(r.name.strip().lower())
         if lid and r.min_price > 0:
             db.add(PriceSnapshot(
                 listing_id=lid,
                 price=r.min_price,
-                scraped_at=now,
+                scraped_at=datetime.now(timezone.utc),
             ))
-
-    # Refresh raw_offers so future quantity changes use current data
-    await db.execute(delete(RawOffer).where(RawOffer.event_id == event_id))
-    for raw in raw_offers:
-        db.add(RawOffer(
-            event_id=event_id,
-            section=raw.section,
-            list_price=raw.list_price,
-            sellable_quantities=raw.sellable_quantities,
-            scraped_at=now,
-            inventory_type=raw.inventory_type,
-        ))
-
     await db.commit()
 
     return JSONResponse({

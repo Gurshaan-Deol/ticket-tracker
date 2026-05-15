@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models import AlertLog, Event, Listing, PriceSnapshot, RawOffer, UserWatch
+from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
 from app.scraper.ticketmaster import scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ async def run_watch_job(watch_id: int) -> None:
         # Step 5: Scrape
         try:
             loop = asyncio.get_event_loop()
-            scraped_results, _, raw_offers = await loop.run_in_executor(
+            scraped_results, _ = await loop.run_in_executor(
                 None, scrape_event_sync, event.ticketmaster_url, event.quantity
             )
         except Exception as e:
@@ -164,18 +164,6 @@ async def run_watch_job(watch_id: int) -> None:
             logger.info(
                 "Watch %d — listing '%s' not found in scraped results", watch_id, listing.name
             )
-
-        # Refresh raw_offers so quantity changes after this poll use current data
-        await session.execute(delete(RawOffer).where(RawOffer.event_id == event.id))
-        for raw in raw_offers:
-            session.add(RawOffer(
-                event_id=event.id,
-                section=raw.section,
-                list_price=raw.list_price,
-                sellable_quantities=raw.sellable_quantities,
-                scraped_at=now,
-                inventory_type=raw.inventory_type,
-            ))
 
         # Step 10: Commit
         await session.commit()

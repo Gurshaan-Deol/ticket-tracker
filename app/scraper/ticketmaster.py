@@ -34,21 +34,13 @@ class ListingResult:
     min_price: float
 
 
-@dataclass
-class RawOfferResult:
-    section: str
-    list_price: float
-    sellable_quantities: str  # comma-separated ints, or "any" meaning no restriction
-    inventory_type: str = "resale"
-
-
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
-def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int], list[RawOfferResult]]:
+def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
     """
     Run scrape_event in a dedicated thread with its own event loop.
-    Returns (listings, available_quantities, raw_offers).
+    Returns (listings, available_quantities).
     quantity=None means no filtering — return all listings and discover available quantities.
     """
     def _run():
@@ -68,18 +60,18 @@ def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[Listi
 # ---------------------------------------------------------------------------
 
 
-async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int], list[RawOfferResult]]:
-    """Returns (listings, available_quantities, raw_offers). quantity=None → no filter."""
+async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
+    """Returns (listings, available_quantities). quantity=None → no filter."""
     qty_label = str(quantity) if quantity is not None else "all"
     logger.info("Scrape started — %s (qty=%s)", url, qty_label)
     try:
         async with managed_browser_context() as ctx:
-            results, available_quantities, raw_offers = await _scrape_page(ctx, url, quantity)
+            results, available_quantities = await _scrape_page(ctx, url, quantity)
         logger.info(
             "Scrape finished — %d listing(s), available qty=%s for %s",
             len(results), available_quantities, url,
         )
-        return results, available_quantities, raw_offers
+        return results, available_quantities
     except Exception:
         logger.exception("Scrape failed for %s", url)
         raise
@@ -90,7 +82,7 @@ async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[List
 # ---------------------------------------------------------------------------
 
 
-async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int], list[RawOfferResult]]:
+async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
     page = await context.new_page()
     pending_responses = []
 
@@ -117,8 +109,8 @@ async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[
 
         await _accept_cookies(page)
 
-        # Poll until the offers API response arrives, then wait for pagination to complete.
-        max_wait_ms = 30_000
+        # Poll until the offers API response arrives, then close immediately.
+        max_wait_ms = 20_000
         poll_interval_ms = 500
         elapsed = 0
         while elapsed < max_wait_ms:
@@ -127,14 +119,12 @@ async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[
                 for r in pending_responses
             )
             if has_offers:
-                # Wait longer to capture all paginated offer responses
-                # Ticketmaster fires multiple offers requests in sequence
-                await page.wait_for_timeout(3_000)
+                await page.wait_for_timeout(1_000)
                 break
             await page.wait_for_timeout(poll_interval_ms)
             elapsed += poll_interval_ms
         else:
-            logger.warning("Offers API response never arrived within 30s — attempting extraction anyway")
+            logger.warning("Offers API response never arrived within 20s — attempting extraction anyway")
 
         # Read queued response bodies sequentially now that we have the data.
         captured_data = []
@@ -148,28 +138,18 @@ async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[
 
         logger.debug(f"Successfully parsed {len(captured_data)} response bodies out of {len(pending_responses)} queued")
 
-        offer_responses = [
-            (d, sum(1 for _ in d.get("_embedded", {}).get("offer", [])))
-            for d in captured_data
-            if d.get("_embedded", {}).get("offer")
-        ]
-        logger.info(f"Offer responses captured: {len(offer_responses)}")
-        for i, (d, count) in enumerate(offer_responses):
-            logger.info(f"  Offer batch {i+1}: {count} offers")
-
         available_quantities = extract_available_quantities(captured_data)
-        raw_offers = extract_raw_offers(captured_data)
 
         # Approach A — parse captured API responses
         results = _extract_from_api_responses(captured_data, quantity)
         if results:
             logger.debug("API approach yielded %d result(s)", len(results))
-            return results, available_quantities, raw_offers
+            return results, available_quantities
 
         # Approach B — DOM extraction fallback
         logger.debug("API approach empty, falling back to DOM extraction")
         results = await _extract_listings(page)
-        return results, available_quantities, raw_offers
+        return results, available_quantities
     finally:
         await page.close()
 
@@ -212,52 +192,6 @@ def extract_available_quantities(responses: list[dict]) -> list[int]:
     result = sorted(seen)
     logger.info("Available quantities from API: %s", result)
     return result
-
-
-def extract_raw_offers(responses: list[dict]) -> list[RawOfferResult]:
-    """Return all individual offers from API responses without deduplication."""
-    results: list[RawOfferResult] = []
-    for resp_data in responses:
-        try:
-            offers_list = resp_data.get("_embedded", {}).get("offer", [])
-            if not isinstance(offers_list, list):
-                continue
-            for offer in offers_list:
-                if not isinstance(offer, dict):
-                    continue
-                if offer.get("online") is False:
-                    continue
-                if offer.get("protected") is True:
-                    continue
-                section = offer.get("section")
-                if not section or not str(section).strip():
-                    continue
-                list_price = offer.get("listPrice") or offer.get("totalPrice")
-                if list_price is None:
-                    continue
-                try:
-                    list_price = float(list_price)
-                except (TypeError, ValueError):
-                    continue
-                if list_price <= 0:
-                    continue
-                raw_sq = offer.get("sellableQuantities", [])
-                if raw_sq:
-                    sellable_quantities = [int(q) for q in raw_sq if str(q).isdigit()]
-                    sq_str = ",".join(str(q) for q in sellable_quantities)
-                else:
-                    sq_str = "any"
-                inventory_type = offer.get("inventoryType", "resale")
-                results.append(RawOfferResult(
-                    section=str(section).strip(),
-                    list_price=list_price,
-                    sellable_quantities=sq_str,
-                    inventory_type=inventory_type,
-                ))
-        except Exception as e:
-            logger.debug("extract_raw_offers error: %s", e)
-    logger.debug("extract_raw_offers: %d raw offer(s)", len(results))
-    return results
 
 
 def _extract_from_api_responses(responses: list[dict], quantity: int | None = None) -> list[ListingResult]:

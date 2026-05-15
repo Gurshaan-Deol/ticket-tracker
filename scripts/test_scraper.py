@@ -14,21 +14,13 @@ async def main():
 
     print(f"\nScraping: {url}")
     start = time.monotonic()
-    results, available_quantities, raw_offers = await scrape_event(url, quantity=None)
+    results, available_quantities = await scrape_event(url, quantity=None)
     elapsed = time.monotonic() - start
 
     print(f"\nDone in {elapsed:.1f}s — {len(results)} section(s)")
     print(f"Available quantities: {available_quantities}")
     for r in results[:10]:
         print(f"  {r.name}: ${r.min_price:.2f}")
-
-    print(f"\nRaw offers captured: {len(raw_offers)}")
-    sq_values = {}
-    for r in raw_offers:
-        sq_values[r.sellable_quantities] = sq_values.get(r.sellable_quantities, 0) + 1
-    print("sellable_quantities breakdown:")
-    for sq, count in sorted(sq_values.items()):
-        print(f"  '{sq}': {count} offers")
 
 
 asyncio.run(main())
