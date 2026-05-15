@@ -105,6 +105,10 @@
         </td>
         <td class="px-4 py-3 font-mono text-gray-200">
           {% if l.current_price is not none %}${{ "%.2f" | format(l.current_price) }}{% else %}—{% endif %}
+          <button class="show-history-btn block mt-1 text-xs font-sans text-gray-500 hover:text-green-400 underline underline-offset-2 transition"
+                  data-listing-id="{{ l.id }}">
+            Show price history
+          </button>
         </td>
         <td class="px-4 py-3 font-mono {% if l.watch %}text-green-400{% else %}text-gray-600{% endif %}">
           {% if l.watch %}${{ "%.2f" | format(l.watch.target_price) }}{% else %}—{% endif %}
@@ -184,6 +188,15 @@
       </tr>
       {% endif %}
 
+      <!-- Price history chart row -->
+      <tr class="border-b border-gray-800" id="chart-row-{{ l.id }}">
+        <td colspan="6" class="px-4 pb-3 pt-1">
+          <div class="price-chart-container hidden" id="chart-container-{{ l.id }}"
+               style="position:relative;">
+          </div>
+        </td>
+      </tr>
+
       {% endfor %}
     </tbody>
   </table>
@@ -194,20 +207,6 @@
 </p>
 {% endif %}
 
-<!-- Price History Charts -->
-{% if snapshot_chart_data %}
-<script type="application/json" id="snapshot-data">{{ snapshot_chart_data | tojson }}</script>
-
-<h2 class="text-lg font-semibold mt-12 mb-4 text-gray-300">Price History</h2>
-<div class="flex flex-col gap-6">
-  {% for item in snapshot_chart_data %}
-  <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
-    <h3 class="text-sm font-medium text-gray-400 mb-3">{{ item.name }}</h3>
-    <canvas id="chart-{{ item.listing_id }}" height="80"></canvas>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
 
 <script>
   // ── Quantity editor ──────────────────────────────────────────────────────────
@@ -392,6 +391,8 @@
       if (formRow) tbody.appendChild(formRow);
       var aiRow = document.getElementById('ai-row-' + listingId);
       if (aiRow) tbody.appendChild(aiRow);
+      var chartRow = document.getElementById('chart-row-' + listingId);
+      if (chartRow) tbody.appendChild(chartRow);
     });
 
     document.querySelectorAll('th[data-sort-col]').forEach(function (th) {
@@ -419,60 +420,115 @@
 
   applySort();
 
-  // ── Chart.js ─────────────────────────────────────────────────────────────────
-  const snapshotEl = document.getElementById('snapshot-data');
-  if (snapshotEl) {
-    const chartItems = JSON.parse(snapshotEl.textContent);
-    chartItems.forEach(function (item) {
-      const canvas = document.getElementById('chart-' + item.listing_id);
-      if (!canvas) return;
+  // ── Price History Charts (fetch-on-demand) ───────────────────────────────────
+  var chartInstances = {};
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-      const labels = item.snapshots.map(function (s) {
-        const d = new Date(s.scraped_at);
-        const date = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-        const time = d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false });
-        return date + ' ' + time;
-      });
-      const prices = item.snapshots.map(function (s) { return s.price; });
-
-      new Chart(canvas, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            data: prices,
-            borderColor: '#4ade80',
-            backgroundColor: 'rgba(74, 222, 128, 0.06)',
-            borderWidth: 2,
-            pointRadius: 3,
-            pointBackgroundColor: '#4ade80',
-            tension: 0.3,
-            fill: true,
-          }],
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { display: false },
-          },
-          scales: {
-            x: {
-              ticks: { color: '#6b7280', maxTicksLimit: 8, font: { size: 11 } },
-              grid: { color: '#1f2937' },
-            },
-            y: {
-              ticks: {
-                color: '#6b7280',
-                font: { size: 11 },
-                callback: function (v) { return '$' + v.toFixed(2); },
-              },
-              grid: { color: '#1f2937' },
-            },
-          },
-        },
-      });
-    });
+  function fmtTimestamp(ts) {
+    var d = new Date(ts);
+    return MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
+           String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
+
+  document.querySelectorAll('.show-history-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var id = this.dataset.listingId;
+      var container = document.getElementById('chart-container-' + id);
+
+      // Toggle hide
+      if (!container.classList.contains('hidden')) {
+        if (chartInstances[id]) {
+          chartInstances[id].destroy();
+          delete chartInstances[id];
+        }
+        container.innerHTML = '';
+        container.style.height = '';
+        container.classList.add('hidden');
+        this.textContent = 'Show price history';
+        return;
+      }
+
+      // Fetch and render
+      var origText = this.textContent;
+      this.textContent = 'Loading…';
+      this.disabled = true;
+
+      try {
+        var resp = await fetch('/listings/' + id + '/history');
+        var json = await resp.json();
+        var points = json.data || [];
+
+        container.innerHTML = '';
+
+        if (points.length < 2) {
+          container.style.height = 'auto';
+          container.innerHTML = '<p class="text-sm text-gray-500 italic py-3">Not enough data yet</p>';
+        } else {
+          container.style.height = '180px';
+          var canvas = document.createElement('canvas');
+          container.appendChild(canvas);
+
+          var labels = points.map(function (p) { return fmtTimestamp(p.timestamp); });
+          var prices = points.map(function (p) { return p.price; });
+
+          chartInstances[id] = new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [{
+                data: prices,
+                borderColor: '#4ade80',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: '#4ade80',
+                fill: false,
+                tension: 0.3,
+              }],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    title: function (items) {
+                      return fmtTimestamp(points[items[0].dataIndex].timestamp);
+                    },
+                    label: function (item) {
+                      return '$' + item.parsed.y.toFixed(2);
+                    },
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 11 } },
+                  grid: { color: '#1f2937' },
+                },
+                y: {
+                  ticks: {
+                    color: '#9ca3af',
+                    font: { size: 11 },
+                    callback: function (v) { return '$' + v.toFixed(2); },
+                  },
+                  grid: { color: '#1f2937' },
+                },
+              },
+            },
+          });
+        }
+
+        container.classList.remove('hidden');
+        this.textContent = 'Hide price history';
+      } catch (e) {
+        alert('Failed to load price history: ' + e.message);
+        this.textContent = origText;
+      }
+      this.disabled = false;
+    });
+  });
 </script>
 
 {% endblock %}

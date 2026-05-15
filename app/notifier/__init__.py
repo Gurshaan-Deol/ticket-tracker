@@ -4,7 +4,6 @@ from app.config import get_settings
 from app.notifier.base import BaseNotifier
 from app.notifier.desktop import DesktopNotifier
 from app.notifier.email import EmailNotifier
-from app.notifier.telegram import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -13,14 +12,6 @@ class NotifierManager:
     def __init__(self) -> None:
         settings = get_settings()
         self.notifiers: list[BaseNotifier] = []
-
-        telegram = TelegramNotifier(
-            bot_token=settings.telegram_bot_token,
-            chat_id=settings.telegram_chat_id,
-        )
-        if telegram.is_configured():
-            self.notifiers.append(telegram)
-            logger.info("Telegram notifier enabled")
 
         email = EmailNotifier(
             smtp_host=settings.smtp_host,

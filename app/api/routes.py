@@ -630,12 +630,11 @@ async def price_history(listing_id: int, db: AsyncSession = Depends(get_db)):
         select(PriceSnapshot)
         .where(PriceSnapshot.listing_id == listing_id)
         .order_by(PriceSnapshot.scraped_at.asc())
-        .limit(100)
     )
     snapshots = result.scalars().all()
     return JSONResponse({
-        "snapshots": [
-            {"price": s.price, "scraped_at": s.scraped_at.isoformat()}
+        "data": [
+            {"timestamp": s.scraped_at.isoformat(), "price": s.price}
             for s in snapshots
         ]
     })
