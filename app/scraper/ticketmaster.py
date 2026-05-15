@@ -13,17 +13,6 @@ logger = logging.getLogger(__name__)
 
 PRICE_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
 
-# Selectors tried in order when waiting for ticket data to load.
-_TICKET_WAIT_SELECTORS = [
-    "[data-testid='listings-container']",
-    "[class*='offer-list']",
-    "[class*='OfferList']",
-    "[class*='ticket-list']",
-    "[class*='resale']",
-    "[class*='Resale']",
-    "li[class*='offer']",
-]
-
 # Child selectors used to pull a listing name from a container element.
 _NAME_CHILD_SELECTORS = [
     "[class*='name']",
@@ -117,12 +106,27 @@ async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[
 
         logger.debug("Navigating to %s", url)
         await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        await page.wait_for_load_state("load", timeout=30_000)
 
         await _accept_cookies(page)
-        await _wait_for_ticket_data(page)
 
-        # Read queued response bodies sequentially now that the page has settled.
+        # Poll until the offers API response arrives, then close immediately.
+        max_wait_ms = 20_000
+        poll_interval_ms = 500
+        elapsed = 0
+        while elapsed < max_wait_ms:
+            has_offers = any(
+                "offers" in r.url and "ismds" in r.url
+                for r in pending_responses
+            )
+            if has_offers:
+                await page.wait_for_timeout(1_000)
+                break
+            await page.wait_for_timeout(poll_interval_ms)
+            elapsed += poll_interval_ms
+        else:
+            logger.warning("Offers API response never arrived within 20s — attempting extraction anyway")
+
+        # Read queued response bodies sequentially now that we have the data.
         captured_data = []
         for resp in pending_responses:
             try:
@@ -157,23 +161,11 @@ async def _accept_cookies(page) -> None:
         "button[aria-label*='Accept']",
     ):
         try:
-            await page.click(selector, timeout=3_000)
+            await page.click(selector, timeout=2_000)
             logger.debug("Cookie banner dismissed")
             return
         except Exception:
             pass
-
-
-async def _wait_for_ticket_data(page) -> None:
-    await page.wait_for_timeout(8_000)
-    for selector in _TICKET_WAIT_SELECTORS:
-        try:
-            await page.wait_for_selector(selector, timeout=20_000)
-            logger.debug("Ticket data confirmed via '%s'", selector)
-            return
-        except Exception:
-            pass
-    logger.warning("No known ticket-data selector appeared — attempting extraction anyway")
 
 
 # ---------------------------------------------------------------------------

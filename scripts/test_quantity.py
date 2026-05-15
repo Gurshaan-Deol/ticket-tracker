@@ -8,12 +8,6 @@ from app.scraper.ticketmaster import scrape_event
 async def main():
     url = "https://www.ticketmaster.ca/bruno-mars-the-romantic-tour-toronto-ontario-05-23-2026/event/10006390B4647809"
 
-    print("Scraping with quantity=2...")
-    results_2, _ = await scrape_event(url, quantity=2)
-    print(f"quantity=2: {len(results_2)} sections")
-    for r in results_2[:5]:
-        print(f"  {r.name}: ${r.min_price:.2f}")
-
     print("\nScraping with quantity=1...")
     results_1, _ = await scrape_event(url, quantity=1)
     print(f"quantity=1: {len(results_1)} sections")
