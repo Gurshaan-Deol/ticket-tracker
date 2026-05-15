@@ -48,16 +48,17 @@ class ListingResult:
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
-def scrape_event_sync(url: str) -> tuple[list[ListingResult], int]:
+def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
     """
     Run scrape_event in a dedicated thread with its own event loop.
-    Use this when calling from FastAPI routes to avoid event loop conflicts.
+    Returns (listings, available_quantities).
+    quantity=None means no filtering — return all listings and discover available quantities.
     """
     def _run():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(scrape_event(url))
+            return loop.run_until_complete(scrape_event(url, quantity))
         finally:
             loop.close()
 
@@ -70,17 +71,18 @@ def scrape_event_sync(url: str) -> tuple[list[ListingResult], int]:
 # ---------------------------------------------------------------------------
 
 
-async def scrape_event(url: str) -> tuple[list[ListingResult], int]:
-    """Returns (listings, api_response_count)."""
-    logger.info("Scrape started — %s", url)
+async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
+    """Returns (listings, available_quantities). quantity=None → no filter."""
+    qty_label = str(quantity) if quantity is not None else "all"
+    logger.info("Scrape started — %s (qty=%s)", url, qty_label)
     try:
         async with managed_browser_context() as ctx:
-            results, api_count = await _scrape_page(ctx, url)
+            results, available_quantities = await _scrape_page(ctx, url, quantity)
         logger.info(
-            "Scrape finished — %d listing(s), %d API response(s) for %s",
-            len(results), api_count, url,
+            "Scrape finished — %d listing(s), available qty=%s for %s",
+            len(results), available_quantities, url,
         )
-        return results, api_count
+        return results, available_quantities
     except Exception:
         logger.exception("Scrape failed for %s", url)
         raise
@@ -91,7 +93,7 @@ async def scrape_event(url: str) -> tuple[list[ListingResult], int]:
 # ---------------------------------------------------------------------------
 
 
-async def _scrape_page(context, url: str) -> tuple[list[ListingResult], int]:
+async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
     page = await context.new_page()
     pending_responses = []
 
@@ -132,16 +134,18 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], int]:
 
         logger.debug(f"Successfully parsed {len(captured_data)} response bodies out of {len(pending_responses)} queued")
 
+        available_quantities = extract_available_quantities(captured_data)
+
         # Approach A — parse captured API responses
-        results = _extract_from_api_responses(captured_data)
+        results = _extract_from_api_responses(captured_data, quantity)
         if results:
             logger.debug("API approach yielded %d result(s)", len(results))
-            return results, len(captured_data)
+            return results, available_quantities
 
         # Approach B — DOM extraction fallback
         logger.debug("API approach empty, falling back to DOM extraction")
         results = await _extract_listings(page)
-        return results, len(captured_data)
+        return results, available_quantities
     finally:
         await page.close()
 
@@ -177,13 +181,41 @@ async def _wait_for_ticket_data(page) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _extract_from_api_responses(responses: list[dict]) -> list[ListingResult]:
+def extract_available_quantities(responses: list[dict]) -> list[int]:
+    """Return sorted unique sellableQuantities found across all offers in all responses."""
+    seen: set[int] = set()
+    for resp_data in responses:
+        try:
+            offers_list = resp_data.get("_embedded", {}).get("offer", [])
+            for item in offers_list:
+                if not isinstance(item, dict):
+                    continue
+                for q in item.get("sellableQuantities", []):
+                    try:
+                        seen.add(int(q))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception as e:
+            logger.debug("extract_available_quantities error: %s", e)
+    result = sorted(seen)
+    logger.info("Available quantities from API: %s", result)
+    return result
+
+
+def _extract_from_api_responses(responses: list[dict], quantity: int | None = None) -> list[ListingResult]:
     raw: list[ListingResult] = []
 
     for resp_data in responses:
         try:
             # Path A — _embedded.offer (singular)
             offers_list = resp_data.get("_embedded", {}).get("offer", [])
+            if isinstance(offers_list, list) and offers_list and quantity is not None:
+                all_sellable = set()
+                for item in offers_list:
+                    sq = item.get("sellableQuantities", [])
+                    if sq:
+                        all_sellable.update(sq)
+                logger.debug(f"Quantity filter={quantity}, all sellableQuantities found: {sorted(all_sellable)}")
             if isinstance(offers_list, list) and offers_list:
                 path_a: list[ListingResult] = []
                 for item in offers_list:
@@ -196,6 +228,10 @@ def _extract_from_api_responses(responses: list[dict]) -> list[ListingResult]:
                     section = item.get("section")
                     if not section or not str(section).strip():
                         continue
+                    if quantity is not None:
+                        sellable = item.get("sellableQuantities")
+                        if sellable and quantity not in sellable:
+                            continue
                     price = item.get("listPrice") or item.get("totalPrice")
                     try:
                         price = float(price)  # type: ignore[arg-type]

@@ -14,6 +14,8 @@ class Event(Base):
     venue: Mapped[str | None] = mapped_column(String, nullable=True)
     event_date: Mapped[str | None] = mapped_column(String, nullable=True)
     ticketmaster_url: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    available_quantities: Mapped[str | None] = mapped_column(String, nullable=True)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

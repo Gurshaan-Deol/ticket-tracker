@@ -28,6 +28,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _parse_quantities(qty_str: str | None) -> list[int]:
+    """Parse comma-separated quantity string into sorted int list. Falls back to [1..6]."""
+    if not qty_str:
+        return [1, 2, 3, 4, 5, 6]
+    try:
+        result = sorted({int(q) for q in qty_str.split(",") if q.strip()})
+        return result if result else [1, 2, 3, 4, 5, 6]
+    except ValueError:
+        return [1, 2, 3, 4, 5, 6]
+
+
 def _parse_url_slug(url: str) -> tuple[str, str | None]:
     """Returns (event_name, event_date_str) parsed from a Ticketmaster URL slug."""
     parsed = urlparse(url)
@@ -140,12 +151,34 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(request, "dashboard.html", {"events": events_list})
 
 
+@router.get("/events/{event_id}/setup", response_class=HTMLResponse)
+async def event_setup(event_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event_obj = event_result.scalar_one_or_none()
+    if not event_obj:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    available_quantities = _parse_quantities(event_obj.available_quantities)
+    return templates.TemplateResponse(request, "setup.html", {
+        "event": {
+            "id": event_obj.id,
+            "name": event_obj.name,
+            "venue": event_obj.venue,
+            "event_date": event_obj.event_date,
+        },
+        "available_quantities": available_quantities,
+    })
+
+
 @router.get("/events/{event_id}", response_class=HTMLResponse)
 async def event_detail(event_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     event_result = await db.execute(select(Event).where(Event.id == event_id))
     event_obj = event_result.scalar_one_or_none()
     if not event_obj:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    if event_obj.quantity is None:
+        return RedirectResponse(url=f"/events/{event_id}/setup", status_code=303)
 
     listings_result = await db.execute(
         select(Listing).where(Listing.event_id == event_id)
@@ -170,20 +203,21 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         snapshots = snaps_result.scalars().all()
         snaps_dicts = [{"price": s.price, "scraped_at": s.scraped_at.isoformat()} for s in snapshots]
 
-        listings_data.append({
-            "id": listing.id,
-            "name": listing.name,
-            "is_available": listing.is_available,
-            "current_price": snapshots[-1].price if snapshots else None,
-            "watch": {
-                "id": watch.id,
-                "target_price": watch.target_price,
-                "refresh_interval_minutes": watch.refresh_interval_minutes,
-                "alert_cooldown_minutes": watch.alert_cooldown_minutes,
-            } if watch else None,
-            "snapshots": snaps_dicts,
-            "snapshot_count": len(snapshots),
-        })
+        if snapshots:  # only show listings with price data for selected quantity
+            listings_data.append({
+                "id": listing.id,
+                "name": listing.name,
+                "is_available": listing.is_available,
+                "current_price": snapshots[-1].price,
+                "watch": {
+                    "id": watch.id,
+                    "target_price": watch.target_price,
+                    "refresh_interval_minutes": watch.refresh_interval_minutes,
+                    "alert_cooldown_minutes": watch.alert_cooldown_minutes,
+                } if watch else None,
+                "snapshots": snaps_dicts,
+                "snapshot_count": len(snapshots),
+            })
 
         if len(snapshots) >= 2:
             snapshot_chart_data.append({
@@ -192,6 +226,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "snapshots": snaps_dicts,
             })
 
+    available_quantities = _parse_quantities(event_obj.available_quantities)
     return templates.TemplateResponse(request, "event.html", {
         "event": {
             "id": event_obj.id,
@@ -200,7 +235,9 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
             "event_date": event_obj.event_date,
             "ticketmaster_url": event_obj.ticketmaster_url,
             "is_active": event_obj.is_active,
+            "quantity": event_obj.quantity,
         },
+        "available_quantities": available_quantities,
         "listings": listings_data,
         "snapshot_chart_data": snapshot_chart_data,
         "ai_enabled": bool(get_settings().ai_api_key),
@@ -227,7 +264,8 @@ async def add_event(
 
     try:
         loop = asyncio.get_event_loop()
-        scraped_results, _ = await loop.run_in_executor(None, _scrape_sync, url)
+        # quantity=None → unfiltered scrape; discovers all listings and available quantities
+        scraped_results, available_quantities = await loop.run_in_executor(None, _scrape_sync, url)
     except Exception as e:
         import traceback
         logger.error(f"Add event failed: {e}\n{traceback.format_exc()}")
@@ -247,6 +285,8 @@ async def add_event(
         venue=None,
         event_date=event_date,
         ticketmaster_url=url,
+        available_quantities=",".join(str(q) for q in available_quantities),
+        quantity=None,
         added_at=now,
         is_active=True,
     )
@@ -261,8 +301,7 @@ async def add_event(
             last_seen_at=now,
         ))
 
-    # Save initial price snapshots for all listings
-    await db.flush()  # ensure all listing IDs are available
+    await db.flush()
 
     listings_result = await db.execute(
         select(Listing).where(Listing.event_id == event.id)
@@ -280,7 +319,70 @@ async def add_event(
             ))
 
     await db.commit()
-    return RedirectResponse(url=f"/events/{event.id}", status_code=303)
+    return RedirectResponse(url=f"/events/{event.id}/setup", status_code=303)
+
+
+@router.post("/events/{event_id}/quantity")
+async def update_quantity(
+    event_id: int,
+    quantity: int = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event = event_result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    valid_quantities = _parse_quantities(event.available_quantities)
+    if quantity not in valid_quantities:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Quantity {quantity} is not available for this event"},
+        )
+
+    event.quantity = quantity
+    await db.flush()
+
+    # Re-scrape filtered by the chosen quantity so stored prices reflect real availability
+    try:
+        loop = asyncio.get_event_loop()
+        scraped_results, _ = await loop.run_in_executor(None, _scrape_sync, event.ticketmaster_url, quantity)
+    except Exception as e:
+        logger.error("Quantity scrape failed for event %d: %s", event_id, e)
+        scraped_results = []
+
+    if scraped_results:
+        now = datetime.now(timezone.utc)
+        listings_result = await db.execute(select(Listing).where(Listing.event_id == event_id))
+        all_listings = listings_result.scalars().all()
+        listing_map = {l.name.strip().lower(): l.id for l in all_listings}
+
+        # Get all listing IDs for this event
+        all_listing_ids_result = await db.execute(
+            select(Listing.id).where(Listing.event_id == event_id)
+        )
+        all_listing_ids = all_listing_ids_result.scalars().all()
+
+        # Delete old snapshots so stale unfiltered prices don't show
+        if all_listing_ids:
+            from sqlalchemy import delete
+            await db.execute(
+                delete(PriceSnapshot).where(PriceSnapshot.listing_id.in_(all_listing_ids))
+            )
+
+        logger.info(f"Quantity set to {quantity} for event {event_id} — deleted old snapshots, saving {len(scraped_results)} new ones")
+
+        for r in scraped_results:
+            lid = listing_map.get(r.name.strip().lower())
+            if lid and r.min_price > 0:
+                db.add(PriceSnapshot(
+                    listing_id=lid,
+                    price=r.min_price,
+                    scraped_at=now,
+                ))
+
+    await db.commit()
+    return RedirectResponse(url=f"/events/{event_id}", status_code=303)
 
 
 @router.post("/events/{event_id}/toggle")
@@ -350,7 +452,9 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         loop = asyncio.get_event_loop()
-        scraped_results, _ = await loop.run_in_executor(None, _scrape_sync, event.ticketmaster_url)
+        scraped_results, _ = await loop.run_in_executor(
+            None, _scrape_sync, event.ticketmaster_url, event.quantity
+        )
     except Exception as e:
         logger.error("Manual scrape failed for event %d: %s", event_id, e)
         return JSONResponse(status_code=500, content={"error": f"Scrape failed: {e}"})

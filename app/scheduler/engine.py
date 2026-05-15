@@ -81,8 +81,9 @@ async def run_watch_job(watch_id: int) -> None:
 
         # Step 5: Scrape
         try:
-            scraped_results, _ = await asyncio.get_event_loop().run_in_executor(
-                None, scrape_event_sync, event.ticketmaster_url
+            loop = asyncio.get_event_loop()
+            scraped_results, _ = await loop.run_in_executor(
+                None, scrape_event_sync, event.ticketmaster_url, event.quantity
             )
         except Exception as e:
             logger.error("Scrape failed for watch %d: %s", watch_id, e)

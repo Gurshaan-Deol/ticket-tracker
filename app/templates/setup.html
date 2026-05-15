@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Choose Tickets — {{ event.name }}{% endblock %}
+
+{% block content %}
+
+<a href="/" class="text-sm text-gray-500 hover:text-gray-300 transition">← Back to Dashboard</a>
+
+<div class="mt-10 max-w-lg mx-auto">
+
+  <h1 class="text-2xl font-bold mb-1">{{ event.name }}</h1>
+  <p class="text-sm text-gray-500 mb-8">
+    {% if event.venue %}{{ event.venue }}{% endif %}
+    {% if event.venue and event.event_date %} · {% endif %}
+    {% if event.event_date %}{{ event.event_date }}{% endif %}
+  </p>
+
+  <h2 class="text-xl font-semibold mb-2">How many tickets are you looking for?</h2>
+  <p class="text-sm text-gray-400 mb-6">
+    Prices will be filtered to show listings available for your exact quantity.
+  </p>
+
+  <form id="setup-form" method="POST" action="/events/{{ event.id }}/quantity">
+    <div class="flex gap-3 flex-wrap mb-8">
+      {% for n in available_quantities %}
+      <button type="button"
+              class="qty-btn w-14 h-14 rounded-full text-lg font-semibold border-2 transition
+                     border-gray-600 text-gray-300 hover:border-green-500 hover:text-green-400"
+              data-qty="{{ n }}">{{ n }}</button>
+      {% endfor %}
+    </div>
+
+    <input type="hidden" name="quantity" id="quantity-input">
+
+    <button type="submit" id="continue-btn" disabled
+            class="w-full bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed
+                   text-white px-6 py-3 rounded-lg font-semibold text-base transition">
+      Continue
+    </button>
+  </form>
+
+  <p class="mt-6 text-xs text-gray-600 leading-relaxed">
+    Can't find the right quantity? Sellers list tickets in fixed groups — if you need 3,
+    look for sections that have 3 available.
+  </p>
+
+</div>
+
+<script>
+  document.querySelectorAll('.qty-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.qty-btn').forEach(function (b) {
+        b.classList.remove('bg-green-700', 'border-green-500', 'text-green-400', 'text-white');
+        b.classList.add('border-gray-600', 'text-gray-300');
+      });
+      this.classList.add('bg-green-700', 'border-green-500', 'text-white');
+      this.classList.remove('border-gray-600', 'text-gray-300');
+      document.getElementById('quantity-input').value = this.dataset.qty;
+      document.getElementById('continue-btn').disabled = false;
+    });
+  });
+
+  document.getElementById('setup-form').addEventListener('submit', function () {
+    var btn = document.getElementById('continue-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching prices…';
+  });
+</script>
+
+{% endblock %}
