@@ -20,6 +20,9 @@ class Event(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
+    raw_offers: Mapped[list["RawOffer"]] = relationship(
+        "RawOffer", back_populates="event", cascade="all, delete-orphan"
+    )
 
 
 class Listing(Base):
@@ -59,6 +62,22 @@ class PriceSnapshot(Base):
     scraped_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="snapshots")
+
+
+class RawOffer(Base):
+    __tablename__ = "raw_offers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
+    section: Mapped[str] = mapped_column(String, nullable=False)
+    list_price: Mapped[float] = mapped_column(Float, nullable=False)
+    sellable_quantities: Mapped[str] = mapped_column(String, nullable=False)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    inventory_type: Mapped[str] = mapped_column(String, default="resale")
+
+    event: Mapped["Event"] = relationship("Event", back_populates="raw_offers")
 
 
 class AlertLog(Base):
