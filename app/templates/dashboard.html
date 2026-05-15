@@ -10,7 +10,7 @@
     + Add Event
   </button>
 </div>
-<p class="text-sm text-gray-500 mb-6">Tracks resale (fan-to-fan) ticket prices only. Reatil tickets are not included.</p>
+<p class="text-sm text-gray-500 mb-6">Tracks resale (fan-to-fan) ticket prices only. Retail tickets are not included.</p>
 
 <!-- Add Event Panel -->
 <div id="add-form-panel" class="hidden mb-6 p-5 bg-gray-900 rounded-lg border border-gray-700">
@@ -31,6 +31,21 @@
   </form>
 </div>
 
+<!-- Sort & Filter Bar -->
+{% if events %}
+<div class="flex flex-wrap items-center gap-3 mb-4">
+  <div class="flex items-center gap-1">
+    <span class="text-xs text-gray-500 mr-1">Sort:</span>
+    <button class="sort-btn text-xs px-3 py-1 rounded font-medium transition bg-gray-700 text-white" data-sort="date">Date</button>
+    <button class="sort-btn text-xs px-3 py-1 rounded font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white" data-sort="price">Price</button>
+    <button class="sort-btn text-xs px-3 py-1 rounded font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white" data-sort="pct">% to Target</button>
+  </div>
+  <input id="event-filter" type="text" placeholder="Filter by event name…"
+         class="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm text-gray-300
+                focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 w-52">
+</div>
+{% endif %}
+
 <!-- Events List -->
 {% if not events %}
 <div class="text-center py-20 text-gray-600">
@@ -40,21 +55,56 @@
 {% else %}
 <div class="flex flex-col gap-3" id="events-list">
   {% for e in events %}
+
+  {# --- Status badge colour --- #}
+  {% if e.status == 'Price Rising' %}
+    {% set badge_cls = 'bg-red-950 text-red-400 border-red-900' %}
+  {% elif e.status == 'Price Dropping' %}
+    {% set badge_cls = 'bg-green-950 text-green-400 border-green-900' %}
+  {% elif e.status == 'Near Target' %}
+    {% set badge_cls = 'bg-yellow-950 text-yellow-400 border-yellow-900' %}
+  {% elif e.status == 'Alert Sent' %}
+    {% set badge_cls = 'bg-blue-950 text-blue-400 border-blue-900' %}
+  {% else %}
+    {% set badge_cls = 'bg-gray-800 text-gray-500 border-gray-700' %}
+  {% endif %}
+
   <div id="event-card-{{ e.id }}"
-       class="p-4 bg-gray-900 rounded-lg border border-gray-700
+       class="event-card p-4 bg-gray-900 rounded-lg border border-gray-700
               flex items-center justify-between gap-4 transition
-              {{ 'opacity-40' if not e.is_active else '' }}">
+              {{ 'opacity-40' if not e.is_active else '' }}"
+       data-date="{{ e.sort_date }}"
+       data-price="{{ e.lowest_price if e.lowest_price is not none else 999999 }}"
+       data-pct="{{ e.pct_to_target }}"
+       data-name="{{ e.name | lower }}">
+
     <div class="flex-1 min-w-0">
+      <!-- Name row -->
       <div class="flex items-center gap-2 flex-wrap">
         <span class="font-semibold">{{ e.name }}</span>
         {% if not e.is_active %}
-        <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
+        <span data-paused-badge class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
+        {% endif %}
+        {% if e.target_price is not none %}
+        <span class="text-xs px-2 py-0.5 rounded-full border {{ badge_cls }}">{{ e.status }}</span>
         {% endif %}
       </div>
+
+      <!-- Venue / date -->
       <div class="text-sm text-gray-500 mt-0.5">
         {% if e.venue %}{{ e.venue }}{% endif %}
         {% if e.venue and e.event_date %} · {% endif %}
         {% if e.event_date %}{{ e.event_date }}{% endif %}
+      </div>
+
+      <!-- Refresh info -->
+      <div class="text-xs text-gray-600 mt-1">
+        {% if e.last_checked_mins_ago is not none %}
+          Last checked: {{ 'just now' if e.last_checked_mins_ago == 0 else (e.last_checked_mins_ago ~ ' min ago') }}
+        {% endif %}
+        {% if e.refresh_interval_minutes %}
+          · Checks every: {{ e.refresh_interval_minutes }} min
+        {% endif %}
       </div>
     </div>
 
@@ -113,7 +163,6 @@
         this.dataset.isActive = isNowActive ? 'true' : 'false';
         if (isNowActive) {
           card.classList.remove('opacity-40');
-          // remove Paused badge if present
           const badge = card.querySelector('[data-paused-badge]');
           if (badge) badge.remove();
         } else {
@@ -141,6 +190,55 @@
       }
     });
   });
+
+  // ── Sorting ──────────────────────────────────────────────────────────────
+  let currentSort = 'date';
+
+  function sortCards() {
+    const list = document.getElementById('events-list');
+    if (!list) return;
+    const cards = Array.from(list.querySelectorAll('.event-card'));
+    cards.sort(function (a, b) {
+      if (currentSort === 'date') {
+        return (a.dataset.date || '9999-99-99').localeCompare(b.dataset.date || '9999-99-99');
+      }
+      if (currentSort === 'price') {
+        return (parseFloat(a.dataset.price) || 999999) - (parseFloat(b.dataset.price) || 999999);
+      }
+      if (currentSort === 'pct') {
+        return (parseFloat(a.dataset.pct) || 9999) - (parseFloat(b.dataset.pct) || 9999);
+      }
+      return 0;
+    });
+    cards.forEach(function (card) { list.appendChild(card); });
+  }
+
+  document.querySelectorAll('.sort-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      currentSort = this.dataset.sort;
+      document.querySelectorAll('.sort-btn').forEach(function (b) {
+        b.classList.remove('bg-gray-700', 'text-white');
+        b.classList.add('bg-gray-800', 'text-gray-400');
+      });
+      this.classList.remove('bg-gray-800', 'text-gray-400');
+      this.classList.add('bg-gray-700', 'text-white');
+      sortCards();
+    });
+  });
+
+  // ── Filtering ─────────────────────────────────────────────────────────────
+  const filterInput = document.getElementById('event-filter');
+  if (filterInput) {
+    filterInput.addEventListener('input', function () {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('.event-card').forEach(function (card) {
+        card.style.display = (card.dataset.name || '').includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // Apply default sort on load
+  sortCards();
 </script>
 
 {% endblock %}
