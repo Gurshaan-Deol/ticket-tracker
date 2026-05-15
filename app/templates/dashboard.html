@@ -85,7 +85,7 @@
         {% if not e.is_active %}
         <span data-paused-badge class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
         {% endif %}
-        {% if e.target_price is not none %}
+        {% if e.setup_complete and e.target_price is not none %}
         <span class="text-xs px-2 py-0.5 rounded-full border {{ badge_cls }}">{{ e.status }}</span>
         {% endif %}
       </div>
@@ -97,7 +97,8 @@
         {% if e.event_date %}{{ e.event_date }}{% endif %}
       </div>
 
-      <!-- Refresh info -->
+      <!-- Refresh info (setup-complete events only) -->
+      {% if e.setup_complete %}
       <div class="text-xs text-gray-600 mt-1">
         {% if e.last_checked_mins_ago is not none %}
           Last checked: {{ 'just now' if e.last_checked_mins_ago == 0 else (e.last_checked_mins_ago ~ ' min ago') }}
@@ -106,27 +107,36 @@
           · Checks every: {{ e.refresh_interval_minutes }} min
         {% endif %}
       </div>
+      {% endif %}
     </div>
 
     <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-      {% if e.lowest_price is not none %}
-      <span class="font-mono text-sm text-green-400 bg-green-950 border border-green-900 px-2 py-1 rounded">
-        ${{ "%.2f" | format(e.lowest_price) }}
-      </span>
-      {% else %}
-      <span class="text-xs text-gray-600">No watches set</span>
-      {% endif %}
-
+      {% if not e.setup_complete %}
+      <!-- Incomplete setup — prompt the user to finish -->
       <a href="/events/{{ e.id }}"
-         class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition">
-        View
+         class="text-xs text-yellow-400 bg-yellow-950 border border-yellow-900 px-3 py-1.5 rounded transition hover:bg-yellow-900">
+        ⚠ Setup incomplete — click to finish
       </a>
-      <button class="pause-btn text-sm px-3 py-1.5 rounded transition
-                     {{ 'bg-yellow-800 hover:bg-yellow-700' if e.is_active else 'bg-gray-700 hover:bg-gray-600' }} text-white"
-              data-event-id="{{ e.id }}"
-              data-is-active="{{ 'true' if e.is_active else 'false' }}">
-        {{ 'Pause' if e.is_active else 'Resume' }}
-      </button>
+      {% else %}
+        {% if e.lowest_price is not none %}
+        <span class="font-mono text-sm text-green-400 bg-green-950 border border-green-900 px-2 py-1 rounded">
+          ${{ "%.2f" | format(e.lowest_price) }}
+        </span>
+        {% else %}
+        <span class="text-xs text-gray-600">No watches set</span>
+        {% endif %}
+
+        <a href="/events/{{ e.id }}"
+           class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition">
+          View
+        </a>
+        <button class="pause-btn text-sm px-3 py-1.5 rounded transition
+                       {{ 'bg-yellow-800 hover:bg-yellow-700' if e.is_active else 'bg-gray-700 hover:bg-gray-600' }} text-white"
+                data-event-id="{{ e.id }}"
+                data-is-active="{{ 'true' if e.is_active else 'false' }}">
+          {{ 'Pause' if e.is_active else 'Resume' }}
+        </button>
+      {% endif %}
       <button class="delete-btn bg-red-900 hover:bg-red-800 text-white px-3 py-1.5 rounded text-sm transition"
               data-event-id="{{ e.id }}">
         Delete

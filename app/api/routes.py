@@ -120,84 +120,86 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         )
         watch_rows = watches_result.all()
 
+        setup_complete = event.quantity is not None
         lowest_price = None
         last_checked_mins_ago = None
         refresh_interval_minutes = None
         target_price = None
         status = "Stable"
 
-        # Most recent snapshot across all listings — drives "Last checked"
-        latest_snap_result = await db.execute(
-            select(PriceSnapshot)
-            .join(Listing, PriceSnapshot.listing_id == Listing.id)
-            .where(Listing.event_id == event.id)
-            .order_by(desc(PriceSnapshot.scraped_at))
-            .limit(1)
-        )
-        latest_snap = latest_snap_result.scalar_one_or_none()
-        if latest_snap:
-            scraped_at = latest_snap.scraped_at
-            if scraped_at.tzinfo is None:
-                scraped_at = scraped_at.replace(tzinfo=timezone.utc)
-            last_checked_mins_ago = max(0, int((now_utc - scraped_at).total_seconds() / 60))
-
-        if watch_rows:
-            refresh_interval_minutes = watch_rows[0][0].refresh_interval_minutes
-            target_price = watch_rows[0][0].target_price
-            watched_listing_ids = [row[1].id for row in watch_rows]
-
-            # Check for an alert fired in the last 24 h
-            recent_alert_result = await db.execute(
-                select(AlertLog)
-                .where(AlertLog.listing_id.in_(watched_listing_ids))
-                .where(AlertLog.alerted_at >= alert_cutoff)
+        if setup_complete:
+            # Most recent snapshot across all listings — drives "Last checked"
+            latest_snap_result = await db.execute(
+                select(PriceSnapshot)
+                .join(Listing, PriceSnapshot.listing_id == Listing.id)
+                .where(Listing.event_id == event.id)
+                .order_by(desc(PriceSnapshot.scraped_at))
                 .limit(1)
             )
-            recent_alert = recent_alert_result.scalar_one_or_none()
+            latest_snap = latest_snap_result.scalar_one_or_none()
+            if latest_snap:
+                scraped_at = latest_snap.scraped_at
+                if scraped_at.tzinfo is None:
+                    scraped_at = scraped_at.replace(tzinfo=timezone.utc)
+                last_checked_mins_ago = max(0, int((now_utc - scraped_at).total_seconds() / 60))
 
-            per_watch_statuses = []
-            for watch, listing in watch_rows:
-                snaps_result = await db.execute(
-                    select(PriceSnapshot)
-                    .where(PriceSnapshot.listing_id == listing.id)
-                    .order_by(desc(PriceSnapshot.scraped_at))
-                    .limit(2)
-                )
-                snaps = snaps_result.scalars().all()
-                if snaps:
-                    latest_price = snaps[0].price
-                    if lowest_price is None or latest_price < lowest_price:
-                        lowest_price = latest_price
-                    if len(snaps) >= 2:
-                        prev_price = snaps[1].price
-                        if latest_price > watch.target_price and latest_price <= watch.target_price * 1.10:
-                            per_watch_statuses.append("Near Target")
-                        elif latest_price < prev_price:
-                            per_watch_statuses.append("Price Dropping")
-                        elif latest_price > prev_price:
-                            per_watch_statuses.append("Price Rising")
-                        else:
-                            per_watch_statuses.append("Stable")
+            if watch_rows:
+                refresh_interval_minutes = watch_rows[0][0].refresh_interval_minutes
+                target_price = watch_rows[0][0].target_price
+                watched_listing_ids = [row[1].id for row in watch_rows]
 
-            if per_watch_statuses:
-                status = min(per_watch_statuses, key=lambda s: _STATUS_PRIORITY.get(s, 99))
-            if recent_alert:
-                status = "Alert Sent"
-        else:
-            # No watches — fall back to all listings for lowest price
-            all_ids_result = await db.execute(
-                select(Listing.id).where(Listing.event_id == event.id)
-            )
-            for lid in all_ids_result.scalars().all():
-                snap_result = await db.execute(
-                    select(PriceSnapshot)
-                    .where(PriceSnapshot.listing_id == lid)
-                    .order_by(desc(PriceSnapshot.scraped_at))
+                # Check for an alert fired in the last 24 h
+                recent_alert_result = await db.execute(
+                    select(AlertLog)
+                    .where(AlertLog.listing_id.in_(watched_listing_ids))
+                    .where(AlertLog.alerted_at >= alert_cutoff)
                     .limit(1)
                 )
-                snap = snap_result.scalar_one_or_none()
-                if snap and (lowest_price is None or snap.price < lowest_price):
-                    lowest_price = snap.price
+                recent_alert = recent_alert_result.scalar_one_or_none()
+
+                per_watch_statuses = []
+                for watch, listing in watch_rows:
+                    snaps_result = await db.execute(
+                        select(PriceSnapshot)
+                        .where(PriceSnapshot.listing_id == listing.id)
+                        .order_by(desc(PriceSnapshot.scraped_at))
+                        .limit(2)
+                    )
+                    snaps = snaps_result.scalars().all()
+                    if snaps:
+                        latest_price = snaps[0].price
+                        if lowest_price is None or latest_price < lowest_price:
+                            lowest_price = latest_price
+                        if len(snaps) >= 2:
+                            prev_price = snaps[1].price
+                            if latest_price > watch.target_price and latest_price <= watch.target_price * 1.10:
+                                per_watch_statuses.append("Near Target")
+                            elif latest_price < prev_price:
+                                per_watch_statuses.append("Price Dropping")
+                            elif latest_price > prev_price:
+                                per_watch_statuses.append("Price Rising")
+                            else:
+                                per_watch_statuses.append("Stable")
+
+                if per_watch_statuses:
+                    status = min(per_watch_statuses, key=lambda s: _STATUS_PRIORITY.get(s, 99))
+                if recent_alert:
+                    status = "Alert Sent"
+            else:
+                # No watches — fall back to all listings for lowest price
+                all_ids_result = await db.execute(
+                    select(Listing.id).where(Listing.event_id == event.id)
+                )
+                for lid in all_ids_result.scalars().all():
+                    snap_result = await db.execute(
+                        select(PriceSnapshot)
+                        .where(PriceSnapshot.listing_id == lid)
+                        .order_by(desc(PriceSnapshot.scraped_at))
+                        .limit(1)
+                    )
+                    snap = snap_result.scalar_one_or_none()
+                    if snap and (lowest_price is None or snap.price < lowest_price):
+                        lowest_price = snap.price
 
         # Pre-compute sortable date (YYYY-MM-DD) and % to target for client-side sorting
         sort_date = "9999-99-99"
@@ -218,6 +220,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "venue": event.venue,
             "event_date": event.event_date,
             "is_active": event.is_active,
+            "setup_complete": setup_complete,
             "lowest_price": lowest_price,
             "target_price": target_price,
             "status": status,
