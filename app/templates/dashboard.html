@@ -155,6 +155,7 @@
 
   // Loading state on form submit
   document.getElementById('add-event-form').addEventListener('submit', function () {
+    window.startScrapeOverlay();
     const btn = document.getElementById('add-submit-btn');
     btn.disabled = true;
     btn.textContent = 'Scraping…';

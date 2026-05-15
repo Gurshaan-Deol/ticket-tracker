@@ -61,6 +61,7 @@
   });
 
   document.getElementById('setup-form').addEventListener('submit', function () {
+    window.startScrapeOverlay();
     var btn = document.getElementById('continue-btn');
     btn.disabled = true;
     btn.textContent = 'Fetching prices…';

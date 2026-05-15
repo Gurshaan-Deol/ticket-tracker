@@ -258,6 +258,7 @@
 
   // ── Scrape Now ──────────────────────────────────────────────────────────────
   document.getElementById('scrape-btn').addEventListener('click', async function () {
+    window.startScrapeOverlay();
     this.textContent = 'Scraping…';
     this.disabled = true;
     try {
@@ -266,11 +267,13 @@
       if (resp.ok) {
         window.location.reload();
       } else {
+        window.stopScrapeOverlay();
         alert('Scrape failed: ' + (data.error || 'unknown error'));
         this.textContent = 'Scrape Now';
         this.disabled = false;
       }
     } catch (e) {
+      window.stopScrapeOverlay();
       alert('Scrape failed: ' + e.message);
       this.textContent = 'Scrape Now';
       this.disabled = false;
