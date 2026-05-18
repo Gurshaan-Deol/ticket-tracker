@@ -20,12 +20,6 @@ class Event(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
-    section_availability: Mapped[list["SectionAvailability"]] = relationship(
-        "SectionAvailability", back_populates="event", cascade="all, delete-orphan"
-    )
-    availability_watches: Mapped[list["SectionAvailabilityWatch"]] = relationship(
-        "SectionAvailabilityWatch", back_populates="event", cascade="all, delete-orphan"
-    )
 
 
 class Listing(Base):
@@ -65,30 +59,6 @@ class PriceSnapshot(Base):
     scraped_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="snapshots")
-
-
-class SectionAvailability(Base):
-    __tablename__ = "section_availability"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
-    section_name: Mapped[str] = mapped_column(String, nullable=False)
-    is_available: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    event: Mapped["Event"] = relationship("Event", back_populates="section_availability")
-
-
-class SectionAvailabilityWatch(Base):
-    __tablename__ = "section_availability_watches"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
-    section_name: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    event: Mapped["Event"] = relationship("Event", back_populates="availability_watches")
 
 
 class AlertLog(Base):

@@ -206,73 +206,6 @@
 </div>
 {% endif %}
 
-<!-- Not Currently Listed (collapsible) -->
-{% if unavailable_listings %}
-<div class="mb-8">
-  <button id="unavail-toggle"
-          class="flex items-center gap-2 text-sm font-semibold text-gray-500 uppercase tracking-widest mb-2 hover:text-gray-300 transition">
-    <span id="unavail-chevron" class="text-xs">▶</span>
-    Not Currently Listed ({{ unavailable_listings | length }})
-  </button>
-  <div id="unavail-body" class="hidden overflow-x-auto rounded-lg border border-gray-700">
-  <table class="w-full text-sm">
-    <thead>
-      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium">Section</th>
-        <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium">Price</th>
-        <th class="px-4 py-3 font-medium">Your Target</th>
-        <th class="px-4 py-3 font-medium">Interval</th>
-        <th class="px-4 py-3 font-medium">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for l in unavailable_listings %}
-      <!-- Main listing row (unavailable) -->
-      <tr class="border-b border-gray-800 opacity-50" id="listing-row-{{ l.id }}">
-        <td class="px-4 py-3 font-medium">{{ l.name }}</td>
-        <td class="px-4 py-3">
-          <span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
-            Unavailable
-          </span>
-        </td>
-        <td class="px-4 py-3 font-mono">
-          {% if l.current_price is not none %}
-          <span class="text-gray-500 italic">${{ "%.2f" | format(l.current_price) }}</span>
-          {% else %}
-          <span class="text-gray-600">—</span>
-          {% endif %}
-          {% if l.last_seen_at %}
-          <span class="block mt-1 text-xs font-sans text-gray-600">
-            Last seen: {{ l.last_seen_at.strftime("%B %d, %Y") }}
-          </span>
-          {% endif %}
-        </td>
-        <td class="px-4 py-3 text-gray-600">—</td>
-        <td class="px-4 py-3 text-gray-600">—</td>
-        <td class="px-4 py-3">
-          <button class="avail-watch-btn text-xs bg-gray-800 hover:bg-gray-700 text-white px-2 py-1 rounded transition"
-                  data-section="{{ l.name }}">
-            🔕 Notify me
-          </button>
-        </td>
-      </tr>
-
-      <!-- Price history chart row (unavailable listings still have history) -->
-      <tr class="border-b border-gray-800 opacity-50" id="chart-row-{{ l.id }}">
-        <td colspan="6" class="px-4 pb-3 pt-1">
-          <div class="price-chart-container hidden" id="chart-container-{{ l.id }}"
-               style="position:relative;">
-          </div>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</div>
-{% endif %}
-
 {% else %}
 <p class="text-center text-gray-600 py-12">
   No listings found yet. Click <strong class="text-gray-400">Scrape Now</strong> to load listings.
@@ -423,18 +356,6 @@
         this.textContent = origText;
         this.disabled = false;
       });
-    });
-  }
-
-  // ── Unavailable section toggle ───────────────────────────────────────────────
-  var unavailToggle = document.getElementById('unavail-toggle');
-  if (unavailToggle) {
-    unavailToggle.addEventListener('click', function () {
-      var body = document.getElementById('unavail-body');
-      var chevron = document.getElementById('unavail-chevron');
-      var expanded = !body.classList.contains('hidden');
-      body.classList.toggle('hidden', expanded);
-      chevron.textContent = expanded ? '▶' : '▼';
     });
   }
 
@@ -601,65 +522,6 @@
       this.disabled = false;
     });
   });
-  // ── Availability watches (unavailable sections) ─────────────────────────────
-  var availWatches = new Set();
-
-  function updateAvailWatchButtons() {
-    document.querySelectorAll('.avail-watch-btn').forEach(function (btn) {
-      var section = btn.dataset.section;
-      if (availWatches.has(section)) {
-        btn.textContent = '🔔 Watching';
-        btn.classList.add('border', 'border-green-700', 'text-green-400');
-        btn.classList.remove('text-white', 'bg-gray-800');
-        btn.classList.add('bg-transparent');
-      } else {
-        btn.textContent = '🔕 Notify me';
-        btn.classList.remove('border', 'border-green-700', 'text-green-400', 'bg-transparent');
-        btn.classList.add('text-white', 'bg-gray-800');
-      }
-    });
-  }
-
-  async function loadAvailabilityWatches() {
-    try {
-      var resp = await fetch('/events/{{ event.id }}/availability-watches');
-      if (!resp.ok) return;
-      var data = await resp.json();
-      data.forEach(function (w) { availWatches.add(w.section_name); });
-      updateAvailWatchButtons();
-    } catch (e) { /* non-fatal */ }
-  }
-
-  document.querySelectorAll('.avail-watch-btn').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      var section = this.dataset.section;
-      var watching = availWatches.has(section);
-      this.disabled = true;
-      try {
-        var resp;
-        if (watching) {
-          resp = await fetch(
-            '/events/{{ event.id }}/availability-watches/' + encodeURIComponent(section),
-            { method: 'DELETE' }
-          );
-          if (resp.ok) availWatches.delete(section);
-        } else {
-          resp = await fetch('/events/{{ event.id }}/availability-watches', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ section_name: section }),
-          });
-          if (resp.ok) availWatches.add(section);
-        }
-        updateAvailWatchButtons();
-      } catch (e) {
-        alert('Failed to update availability watch: ' + e.message);
-      }
-      this.disabled = false;
-    });
-  });
-
-  loadAvailabilityWatches();
 </script>
 
 {% endblock %}

@@ -4,10 +4,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
 from bs4 import BeautifulSoup, Tag
-from sqlalchemy import func, select
 
 from app.scraper.browser import managed_browser_context
 
@@ -412,82 +409,3 @@ def _deduplicate(results: list[ListingResult]) -> list[ListingResult]:
     return list(best.values())
 
 
-# ---------------------------------------------------------------------------
-# Section availability tracking
-# ---------------------------------------------------------------------------
-
-
-async def check_section_availability(db, event_id: int, current_sections: list[str]) -> list[str]:
-    """
-    Compare current scraped sections against the last known availability state.
-
-    Returns section names that were previously unavailable (latest record has
-    is_available=False) and now appear in current_sections.
-
-    Also records the new availability state for all current sections and any
-    previously known sections that have disappeared.
-    """
-    from app.models import SectionAvailability
-
-    current_lower = {s.strip().lower() for s in current_sections}
-
-    # Subquery: latest recorded_at per section for this event.
-    # Must be computed BEFORE we insert new records so the check sees old state.
-    subq = (
-        select(
-            SectionAvailability.section_name,
-            func.max(SectionAvailability.recorded_at).label("latest_at"),
-        )
-        .where(SectionAvailability.event_id == event_id)
-        .group_by(SectionAvailability.section_name)
-        .subquery()
-    )
-
-    # Fetch the actual rows at those timestamps where availability was False.
-    unavail_result = await db.execute(
-        select(SectionAvailability)
-        .join(
-            subq,
-            (SectionAvailability.section_name == subq.c.section_name)
-            & (SectionAvailability.recorded_at == subq.c.latest_at),
-        )
-        .where(SectionAvailability.event_id == event_id)
-        .where(SectionAvailability.is_available == False)  # noqa: E712
-    )
-    last_unavailable = {
-        row.section_name.strip().lower()
-        for row in unavail_result.scalars().all()
-    }
-
-    newly_available = [
-        s for s in current_sections if s.strip().lower() in last_unavailable
-    ]
-
-    # Get all sections ever recorded for this event so we can mark disappearances.
-    known_result = await db.execute(
-        select(SectionAvailability.section_name)
-        .where(SectionAvailability.event_id == event_id)
-        .distinct()
-    )
-    known_sections: set[str] = set(known_result.scalars().all())
-
-    now = datetime.now(timezone.utc)
-
-    for section in current_sections:
-        db.add(SectionAvailability(
-            event_id=event_id,
-            section_name=section.strip(),
-            is_available=True,
-            recorded_at=now,
-        ))
-
-    for section in known_sections:
-        if section.strip().lower() not in current_lower:
-            db.add(SectionAvailability(
-                event_id=event_id,
-                section_name=section,
-                is_available=False,
-                recorded_at=now,
-            ))
-
-    return newly_available
