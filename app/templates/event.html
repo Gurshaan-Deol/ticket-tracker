@@ -73,35 +73,39 @@
 
 <!-- Listings Table -->
 {% if listings %}
-<div class="overflow-x-auto rounded-lg border border-gray-800">
+{% set available_listings = listings | selectattr("is_available") | sort(attribute="current_price") | list %}
+{% set unavailable_listings = listings | rejectattr("is_available") | sort(attribute="name") | list %}
+
+<!-- Available Now -->
+{% if available_listings %}
+<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-2">Available Now</h2>
+<div class="overflow-x-auto rounded-lg border border-gray-800 mb-8">
   <table class="w-full text-sm">
     <thead>
       <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort-col="section">Section <span class="sort-arrow text-gray-500" style="display:inline-block;width:1ch;text-align:center"></span></th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort="name">
+          Section <span class="sort-indicator ml-1"></span>
+        </th>
         <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort-col="price">Current Price <span class="sort-arrow text-gray-300" style="display:inline-block;width:1ch;text-align:center">↑</span></th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort="price">
+          Price <span class="sort-indicator ml-1">▲</span>
+        </th>
         <th class="px-4 py-3 font-medium">Your Target</th>
         <th class="px-4 py-3 font-medium">Interval</th>
         <th class="px-4 py-3 font-medium">Actions</th>
       </tr>
     </thead>
-    <tbody id="listings-tbody">
-      {% for l in listings %}
+    <tbody id="available-tbody">
+      {% for l in available_listings %}
       <!-- Main listing row -->
       <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}"
-          data-section="{{ l.name }}"
+          data-name="{{ l.name | lower }}"
           data-price="{{ l.current_price if l.current_price is not none else 999999 }}">
         <td class="px-4 py-3 font-medium">{{ l.name }}</td>
         <td class="px-4 py-3">
-          {% if l.is_available %}
           <span class="text-xs bg-green-950 text-green-400 border border-green-900 px-2 py-0.5 rounded-full">
             Available
           </span>
-          {% else %}
-          <span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
-            Unavailable
-          </span>
-          {% endif %}
         </td>
         <td class="px-4 py-3 font-mono text-gray-200">
           {% if l.current_price is not none %}${{ "%.2f" | format(l.current_price) }}{% else %}—{% endif %}
@@ -196,11 +200,74 @@
           </div>
         </td>
       </tr>
-
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% endif %}
+
+<!-- Not Currently Listed (collapsible) -->
+{% if unavailable_listings %}
+<div class="mb-8">
+  <button id="unavail-toggle"
+          class="flex items-center gap-2 text-sm font-semibold text-gray-500 uppercase tracking-widest mb-2 hover:text-gray-300 transition">
+    <span id="unavail-chevron" class="text-xs">▶</span>
+    Not Currently Listed ({{ unavailable_listings | length }})
+  </button>
+  <div id="unavail-body" class="hidden overflow-x-auto rounded-lg border border-gray-700">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
+        <th class="px-4 py-3 font-medium">Section</th>
+        <th class="px-4 py-3 font-medium">Status</th>
+        <th class="px-4 py-3 font-medium">Price</th>
+        <th class="px-4 py-3 font-medium">Your Target</th>
+        <th class="px-4 py-3 font-medium">Interval</th>
+        <th class="px-4 py-3 font-medium">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in unavailable_listings %}
+      <!-- Main listing row (unavailable) -->
+      <tr class="border-b border-gray-800 opacity-50" id="listing-row-{{ l.id }}">
+        <td class="px-4 py-3 font-medium">{{ l.name }}</td>
+        <td class="px-4 py-3">
+          <span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
+            Unavailable
+          </span>
+        </td>
+        <td class="px-4 py-3 font-mono">
+          {% if l.current_price is not none %}
+          <span class="text-gray-500 italic">${{ "%.2f" | format(l.current_price) }}</span>
+          {% else %}
+          <span class="text-gray-600">—</span>
+          {% endif %}
+          {% if l.last_seen_at %}
+          <span class="block mt-1 text-xs font-sans text-gray-600">
+            Last seen: {{ l.last_seen_at.strftime("%B %d, %Y") }}
+          </span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-600">—</td>
+        <td class="px-4 py-3 text-gray-600">—</td>
+        <td class="px-4 py-3"></td>
+      </tr>
+
+      <!-- Price history chart row (unavailable listings still have history) -->
+      <tr class="border-b border-gray-800 opacity-50" id="chart-row-{{ l.id }}">
+        <td colspan="6" class="px-4 pb-3 pt-1">
+          <div class="price-chart-container hidden" id="chart-container-{{ l.id }}"
+               style="position:relative;">
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
 {% else %}
 <p class="text-center text-gray-600 py-12">
   No listings found yet. Click <strong class="text-gray-400">Scrape Now</strong> to load listings.
@@ -354,71 +421,71 @@
     });
   }
 
-  // ── Table Sort ───────────────────────────────────────────────────────────────
-  var sortCol = 'price';
-  var sortDir = 'asc';
+  // ── Unavailable section toggle ───────────────────────────────────────────────
+  var unavailToggle = document.getElementById('unavail-toggle');
+  if (unavailToggle) {
+    unavailToggle.addEventListener('click', function () {
+      var body = document.getElementById('unavail-body');
+      var chevron = document.getElementById('unavail-chevron');
+      var expanded = !body.classList.contains('hidden');
+      body.classList.toggle('hidden', expanded);
+      chevron.textContent = expanded ? '▶' : '▼';
+    });
+  }
 
-  function applySort() {
-    var tbody = document.getElementById('listings-tbody');
+  // ── Available Now column sort ─────────────────────────────────────────────────
+  var availSortCol = 'price';
+  var availSortDir = 'asc';
+
+  function applyAvailSort() {
+    var tbody = document.getElementById('available-tbody');
     if (!tbody) return;
 
-    var mainRows = Array.from(tbody.querySelectorAll('tr[data-section]'));
+    var mainRows = Array.from(tbody.querySelectorAll('tr[data-name]'));
 
     mainRows.sort(function (a, b) {
-      var aPrice = parseFloat(a.dataset.price);
-      var bPrice = parseFloat(b.dataset.price);
-
-      if (sortCol === 'price') {
-        var aNoPrice = aPrice >= 999999;
-        var bNoPrice = bPrice >= 999999;
-        if (aNoPrice && bNoPrice) return 0;
-        if (aNoPrice) return 1;
-        if (bNoPrice) return -1;
-        return sortDir === 'asc' ? aPrice - bPrice : bPrice - aPrice;
+      if (availSortCol === 'price') {
+        var aVal = parseFloat(a.dataset.price);
+        var bVal = parseFloat(b.dataset.price);
+        return availSortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }
-
-      // section sort
-      var aVal = a.dataset.section.toLowerCase();
-      var bVal = b.dataset.section.toLowerCase();
+      var aVal = a.dataset.name;
+      var bVal = b.dataset.name;
       var cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      return sortDir === 'asc' ? cmp : -cmp;
+      return availSortDir === 'asc' ? cmp : -cmp;
     });
 
     mainRows.forEach(function (mainRow) {
-      var listingId = mainRow.id.replace('listing-row-', '');
+      var id = mainRow.id.replace('listing-row-', '');
       tbody.appendChild(mainRow);
-      var formRow = document.getElementById('watch-form-' + listingId);
-      if (formRow) tbody.appendChild(formRow);
-      var aiRow = document.getElementById('ai-row-' + listingId);
-      if (aiRow) tbody.appendChild(aiRow);
-      var chartRow = document.getElementById('chart-row-' + listingId);
-      if (chartRow) tbody.appendChild(chartRow);
+      ['watch-form-', 'ai-row-', 'chart-row-'].forEach(function (prefix) {
+        var row = document.getElementById(prefix + id);
+        if (row) tbody.appendChild(row);
+      });
     });
 
-    document.querySelectorAll('th[data-sort-col]').forEach(function (th) {
-      var arrow = th.querySelector('.sort-arrow');
-      if (th.dataset.sortCol === sortCol) {
-        arrow.textContent = sortDir === 'asc' ? ' ↑' : ' ↓';
+    document.querySelectorAll('th[data-sort]').forEach(function (th) {
+      var indicator = th.querySelector('.sort-indicator');
+      if (th.dataset.sort === availSortCol) {
+        indicator.textContent = availSortDir === 'asc' ? '▲' : '▼';
       } else {
-        arrow.textContent = '';
+        indicator.textContent = '';
       }
     });
   }
 
-  document.querySelectorAll('th[data-sort-col]').forEach(function (th) {
+  document.querySelectorAll('th[data-sort]').forEach(function (th) {
     th.addEventListener('click', function () {
-      var col = this.dataset.sortCol;
-      if (sortCol === col) {
-        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      var col = this.dataset.sort;
+      if (availSortCol === col) {
+        availSortDir = availSortDir === 'asc' ? 'desc' : 'asc';
       } else {
-        sortCol = col;
-        sortDir = 'asc';
+        availSortCol = col;
+        availSortDir = 'asc';
       }
-      applySort();
+      applyAvailSort();
     });
   });
-
-  applySort();
 
   // ── Price History Charts (fetch-on-demand) ───────────────────────────────────
   var chartInstances = {};

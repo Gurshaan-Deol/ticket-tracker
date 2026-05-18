@@ -290,6 +290,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "id": listing.id,
                 "name": listing.name,
                 "is_available": listing.is_available,
+                "last_seen_at": listing.last_seen_at,
                 "current_price": snapshots[-1].price,
                 "watch": {
                     "id": watch.id,
@@ -307,6 +308,9 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "name": listing.name,
                 "snapshots": snaps_dicts,
             })
+
+    logger.info(f"listings_data: {len(listings_data)} total, "
+                f"{sum(1 for l in listings_data if not l['is_available'])} unavailable")
 
     available_quantities = _parse_quantities(event_obj.available_quantities)
     return templates.TemplateResponse(request, "event.html", {
