@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
+from app.models import AlertLog, Event, Listing, PriceSnapshot, SectionAvailabilityWatch, UserWatch
 from app.scraper.ticketmaster import scrape_event as _scrape, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import remove_watch_job, schedule_watch_job, scheduler
 
@@ -657,6 +657,89 @@ async def summarize_listing(listing_id: int, db: AsyncSession = Depends(get_db))
     from app.ai.client import summarize_price_history
     summary = await summarize_price_history(snaps_dicts)
     return JSONResponse({"summary": summary})
+
+
+# ---------------------------------------------------------------------------
+# Section availability watches
+# ---------------------------------------------------------------------------
+
+
+class AvailabilityWatchRequest(BaseModel):
+    section_name: str
+
+
+@router.get("/events/{event_id}/availability-watches")
+async def list_availability_watches(event_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(SectionAvailabilityWatch)
+        .where(SectionAvailabilityWatch.event_id == event_id)
+        .where(SectionAvailabilityWatch.is_active == True)  # noqa: E712
+    )
+    watches = result.scalars().all()
+    return JSONResponse([
+        {"id": w.id, "section_name": w.section_name, "created_at": w.created_at.isoformat()}
+        for w in watches
+    ])
+
+
+@router.post("/events/{event_id}/availability-watches")
+async def create_availability_watch(
+    event_id: int,
+    body: AvailabilityWatchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    if not event_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    existing_result = await db.execute(
+        select(SectionAvailabilityWatch)
+        .where(SectionAvailabilityWatch.event_id == event_id)
+        .where(SectionAvailabilityWatch.section_name == body.section_name)
+        .limit(1)
+    )
+    watch = existing_result.scalar_one_or_none()
+
+    if watch:
+        watch.is_active = True
+    else:
+        watch = SectionAvailabilityWatch(
+            event_id=event_id,
+            section_name=body.section_name,
+            is_active=True,
+        )
+        db.add(watch)
+        await db.flush()
+
+    await db.commit()
+    return JSONResponse({
+        "id": watch.id,
+        "event_id": watch.event_id,
+        "section_name": watch.section_name,
+        "is_active": watch.is_active,
+    })
+
+
+@router.delete("/events/{event_id}/availability-watches/{section_name:path}")
+async def deactivate_availability_watch(
+    event_id: int,
+    section_name: str,
+    db: AsyncSession = Depends(get_db),
+):
+    watch_result = await db.execute(
+        select(SectionAvailabilityWatch)
+        .where(SectionAvailabilityWatch.event_id == event_id)
+        .where(SectionAvailabilityWatch.section_name == section_name)
+        .where(SectionAvailabilityWatch.is_active == True)  # noqa: E712
+        .limit(1)
+    )
+    watch = watch_result.scalar_one_or_none()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Watch not found")
+
+    watch.is_active = False
+    await db.commit()
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

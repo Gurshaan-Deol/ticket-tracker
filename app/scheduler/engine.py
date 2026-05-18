@@ -8,8 +8,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import scrape_event, scrape_event_sync
+from app.models import AlertLog, Event, Listing, PriceSnapshot, SectionAvailabilityWatch, UserWatch
+from app.scraper.ticketmaster import check_section_availability, scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -94,6 +94,20 @@ async def run_watch_job(watch_id: int) -> None:
         now = datetime.now(timezone.utc)
         scraped_names_lower = {r.name.strip().lower() for r in scraped_results}
 
+        # Section availability: check before reconciling listings so we see old state
+        current_section_names = [r.name for r in scraped_results]
+        newly_available = await check_section_availability(session, event.id, current_section_names)
+        if newly_available:
+            watched_result = await session.execute(
+                select(SectionAvailabilityWatch)
+                .where(SectionAvailabilityWatch.event_id == event.id)
+                .where(SectionAvailabilityWatch.is_active == True)  # noqa: E712
+                .where(SectionAvailabilityWatch.section_name.in_(newly_available))
+            )
+            watched_names = [w.section_name for w in watched_result.scalars().all()]
+            if watched_names:
+                await fire_availability_alert(event, watched_names)
+
         # Step 6: Find the matching listing by name
         matched_result = None
         for r in scraped_results:
@@ -175,6 +189,22 @@ async def run_watch_job(watch_id: int) -> None:
         logger.error("run_watch_job(%d) failed: %s", watch_id, e, exc_info=True)
     finally:
         await session.close()
+
+
+async def fire_availability_alert(event, sections: list[str]) -> None:
+    from app.notifier import get_notifier_manager
+    manager = get_notifier_manager()
+
+    section_list = "\n".join(f"• {s}" for s in sections)
+    message = (
+        f"🎟 <b>Section Restock Alert</b>\n\n"
+        f"<b>Event:</b> {event.name}\n"
+        f"<b>Sections now available:</b>\n{section_list}\n\n"
+        f"<a href='{event.ticketmaster_url}'>View on Ticketmaster</a>"
+    )
+
+    await manager.send_all(message)
+    logger.info("Availability alert sent for %s — sections: %s", event.name, sections)
 
 
 async def fire_alert(watch, listing, event, price: float) -> str:

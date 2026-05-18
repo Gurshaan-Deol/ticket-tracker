@@ -250,7 +250,12 @@
         </td>
         <td class="px-4 py-3 text-gray-600">—</td>
         <td class="px-4 py-3 text-gray-600">—</td>
-        <td class="px-4 py-3"></td>
+        <td class="px-4 py-3">
+          <button class="avail-watch-btn text-xs bg-gray-800 hover:bg-gray-700 text-white px-2 py-1 rounded transition"
+                  data-section="{{ l.name }}">
+            🔕 Notify me
+          </button>
+        </td>
       </tr>
 
       <!-- Price history chart row (unavailable listings still have history) -->
@@ -596,6 +601,65 @@
       this.disabled = false;
     });
   });
+  // ── Availability watches (unavailable sections) ─────────────────────────────
+  var availWatches = new Set();
+
+  function updateAvailWatchButtons() {
+    document.querySelectorAll('.avail-watch-btn').forEach(function (btn) {
+      var section = btn.dataset.section;
+      if (availWatches.has(section)) {
+        btn.textContent = '🔔 Watching';
+        btn.classList.add('border', 'border-green-700', 'text-green-400');
+        btn.classList.remove('text-white', 'bg-gray-800');
+        btn.classList.add('bg-transparent');
+      } else {
+        btn.textContent = '🔕 Notify me';
+        btn.classList.remove('border', 'border-green-700', 'text-green-400', 'bg-transparent');
+        btn.classList.add('text-white', 'bg-gray-800');
+      }
+    });
+  }
+
+  async function loadAvailabilityWatches() {
+    try {
+      var resp = await fetch('/events/{{ event.id }}/availability-watches');
+      if (!resp.ok) return;
+      var data = await resp.json();
+      data.forEach(function (w) { availWatches.add(w.section_name); });
+      updateAvailWatchButtons();
+    } catch (e) { /* non-fatal */ }
+  }
+
+  document.querySelectorAll('.avail-watch-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var section = this.dataset.section;
+      var watching = availWatches.has(section);
+      this.disabled = true;
+      try {
+        var resp;
+        if (watching) {
+          resp = await fetch(
+            '/events/{{ event.id }}/availability-watches/' + encodeURIComponent(section),
+            { method: 'DELETE' }
+          );
+          if (resp.ok) availWatches.delete(section);
+        } else {
+          resp = await fetch('/events/{{ event.id }}/availability-watches', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section_name: section }),
+          });
+          if (resp.ok) availWatches.add(section);
+        }
+        updateAvailWatchButtons();
+      } catch (e) {
+        alert('Failed to update availability watch: ' + e.message);
+      }
+      this.disabled = false;
+    });
+  });
+
+  loadAvailabilityWatches();
 </script>
 
 {% endblock %}
