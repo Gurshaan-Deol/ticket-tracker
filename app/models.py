@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -20,14 +20,21 @@ class Event(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
+    availability_watches: Mapped[list["AvailabilityWatch"]] = relationship(
+        "AvailabilityWatch", back_populates="event", cascade="all, delete-orphan"
+    )
 
 
 class Listing(Base):
     __tablename__ = "listings"
+    __table_args__ = (
+        UniqueConstraint("event_id", "name", "quantity", name="uq_listing_event_name_qty"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -46,8 +53,45 @@ class UserWatch(Base):
     refresh_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     alert_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="watches")
+
+
+class AvailabilityWatch(Base):
+    __tablename__ = "availability_watches"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "section_name", "quantity",
+            name="uq_availability_watch_event_section_qty"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("events.id"), nullable=False
+    )
+    section_name: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_price: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    alert_cooldown_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=60
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    last_alerted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+    event: Mapped["Event"] = relationship(
+        "Event", back_populates="availability_watches"
+    )
 
 
 class PriceSnapshot(Base):
@@ -77,3 +121,4 @@ Index("ix_listings_event_id", Listing.event_id)
 Index("ix_user_watches_listing_id", UserWatch.listing_id)
 Index("ix_price_snapshots_listing_id", PriceSnapshot.listing_id)
 Index("ix_alert_log_listing_alerted", AlertLog.listing_id, AlertLog.alerted_at)
+Index("ix_availability_watches_event_id", AvailabilityWatch.event_id)

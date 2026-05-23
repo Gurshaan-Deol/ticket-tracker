@@ -8,7 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
+from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
 from app.scraper.ticketmaster import scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,20 @@ async def start_scheduler() -> None:
         watches = result.scalars().all()
         for watch in watches:
             schedule_watch_job(watch)
-    logger.info("Scheduler started — %d job(s) scheduled", len(watches))
+
+        events_result = await session.execute(
+            select(AvailabilityWatch.event_id)
+            .where(AvailabilityWatch.is_active == True)
+            .distinct()
+        )
+        av_event_ids = [row[0] for row in events_result.all()]
+        for event_id in av_event_ids:
+            schedule_availability_job(event_id)
+
+    logger.info(
+        "Scheduler started — %d watch job(s), %d availability job(s) scheduled",
+        len(watches), len(av_event_ids),
+    )
 
 
 async def stop_scheduler() -> None:
@@ -51,6 +64,121 @@ def remove_watch_job(watch_id: int) -> None:
         logger.info("Removed job %s", job_id)
     except Exception:
         logger.warning("Job %s not found — nothing to remove", job_id)
+
+
+def schedule_availability_job(event_id: int) -> None:
+    job_id = f"availability_{event_id}"
+    scheduler.add_job(
+        run_availability_check,
+        trigger=IntervalTrigger(minutes=30),
+        id=job_id,
+        args=[event_id],
+        replace_existing=True,
+        misfire_grace_time=300,
+        max_instances=1,
+    )
+    logger.info("Scheduled availability job for event %d", event_id)
+
+
+def remove_availability_job(event_id: int) -> None:
+    job_id = f"availability_{event_id}"
+    try:
+        scheduler.remove_job(job_id)
+        logger.info("Removed availability job for event %d", event_id)
+    except Exception:
+        pass
+
+
+async def run_availability_check(event_id: int) -> None:
+    async with AsyncSessionLocal() as session:
+        try:
+            event_result = await session.execute(
+                select(Event).where(Event.id == event_id)
+            )
+            event = event_result.scalar_one_or_none()
+            if not event or not event.is_active:
+                return
+
+            watches_result = await session.execute(
+                select(AvailabilityWatch)
+                .where(AvailabilityWatch.event_id == event_id)
+                .where(AvailabilityWatch.is_active == True)
+            )
+            watches = watches_result.scalars().all()
+            if not watches:
+                return
+
+            scraped_results, _ = await asyncio.get_running_loop().run_in_executor(
+                None, scrape_event_sync, event.ticketmaster_url
+            )
+
+            scraped_map: dict[tuple[str, int], float] = {}
+            for r in scraped_results:
+                if r.quantity is not None:
+                    key = (r.name.strip().lower(), r.quantity)
+                    if key not in scraped_map or r.min_price < scraped_map[key]:
+                        scraped_map[key] = r.min_price
+
+            now = datetime.now(timezone.utc)
+
+            for watch in watches:
+                key = (watch.section_name.strip().lower(), watch.quantity)
+                if key not in scraped_map:
+                    continue
+
+                current_price = scraped_map[key]
+
+                if watch.target_price is not None:
+                    if current_price > watch.target_price:
+                        continue
+
+                if watch.last_alerted_at is not None:
+                    cooldown_cutoff = now - timedelta(
+                        minutes=watch.alert_cooldown_minutes
+                    )
+                    if watch.last_alerted_at > cooldown_cutoff:
+                        continue
+
+                await fire_availability_alert(watch, event, current_price)
+                watch.last_alerted_at = now
+
+            await session.commit()
+
+        except Exception as e:
+            logger.error(
+                "run_availability_check(%d) failed: %s", event_id, e,
+                exc_info=True,
+            )
+
+
+async def fire_availability_alert(
+    watch: AvailabilityWatch, event: Event, price: float
+) -> None:
+    from app.notifier import get_notifier_manager
+    manager = get_notifier_manager()
+
+    if watch.target_price is not None:
+        price_line = (
+            f"<b>Price:</b> ${price:.2f} "
+            f"(your target: ${watch.target_price:.2f})\n"
+        )
+    else:
+        price_line = f"<b>Price:</b> ${price:.2f}\n"
+
+    message = (
+        f"🎟 <b>Section Now Available</b>\n\n"
+        f"<b>Event:</b> {event.name}\n"
+        f"<b>Section:</b> {watch.section_name}\n"
+        f"<b>Quantity:</b> {watch.quantity} ticket"
+        f"{'s' if watch.quantity != 1 else ''}\n"
+        f"{price_line}"
+        f"\n<a href='{event.ticketmaster_url}'>View on Ticketmaster</a>"
+    )
+    await manager.send_all(message)
+    logger.info(
+        "Availability alert sent for %s × %d @ $%.2f",
+        watch.section_name, watch.quantity, price,
+    )
 
 
 async def run_watch_job(watch_id: int) -> None:
@@ -86,19 +214,19 @@ async def run_watch_job(watch_id: int) -> None:
         try:
             loop = asyncio.get_event_loop()
             scraped_results, _ = await loop.run_in_executor(
-                None, scrape_event_sync, event.ticketmaster_url, event.quantity
+                None, scrape_event_sync, event.ticketmaster_url
             )
         except Exception as e:
             logger.error("Scrape failed for watch %d: %s", watch_id, e)
             return
 
         now = datetime.now(timezone.utc)
-        scraped_names_lower = {r.name.strip().lower() for r in scraped_results}
 
-        # Step 6: Find the matching listing by name
+        # Step 6: Find the matching listing by name and quantity
         matched_result = None
         for r in scraped_results:
-            if r.name.strip().lower() == listing.name.strip().lower():
+            if (r.name.strip().lower() == listing.name.strip().lower()
+                    and r.quantity == listing.quantity):
                 matched_result = r
                 break
 
@@ -107,23 +235,27 @@ async def run_watch_job(watch_id: int) -> None:
             select(Listing).where(Listing.event_id == event.id)
         )
         all_db_listings = all_db_result.scalars().all()
-        known_by_name = {l.name.strip().lower(): l for l in all_db_listings}
+        known_by_key = {(l.name.strip().lower(), l.quantity): l for l in all_db_listings}
+
+        scraped_keys = {(r.name.strip().lower(), r.quantity) for r in scraped_results}
 
         for r in scraped_results:
-            key = r.name.strip().lower()
-            if key in known_by_name:
-                known_by_name[key].last_seen_at = now
-                known_by_name[key].is_available = True
+            key = (r.name.strip().lower(), r.quantity)
+            if key in known_by_key:
+                known_by_key[key].last_seen_at = now
+                known_by_key[key].is_available = True
             else:
                 session.add(Listing(
                     event_id=event.id,
                     name=r.name.strip(),
+                    quantity=r.quantity,
                     is_available=True,
                     last_seen_at=now,
                 ))
 
         for db_listing in all_db_listings:
-            if db_listing.name.strip().lower() not in scraped_names_lower:
+            key = (db_listing.name.strip().lower(), db_listing.quantity)
+            if key not in scraped_keys:
                 db_listing.is_available = False
 
         # Step 8: Save snapshot if the watched listing appeared in results

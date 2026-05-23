@@ -14,9 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertLog, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import scrape_event as _scrape, scrape_event_sync as _scrape_sync
-from app.scheduler.engine import remove_watch_job, schedule_watch_job, scheduler
+from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
+from app.scraper.ticketmaster import scrape_event_sync as _scrape_sync
+from app.scheduler.engine import (
+    remove_availability_job,
+    remove_watch_job,
+    schedule_availability_job,
+    schedule_watch_job,
+    scheduler,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -79,19 +85,32 @@ async def _reconcile_listings(
     now = datetime.now(timezone.utc)
     all_result = await db.execute(select(Listing).where(Listing.event_id == event_id))
     db_listings = all_result.scalars().all()
-    known = {l.name.strip().lower(): l for l in db_listings}
-    scraped_names = {r.name.strip().lower() for r in scraped_results}
+    known = {
+        (l.name.strip().lower(), l.quantity): l
+        for l in db_listings
+    }
+    scraped_keys = {
+        (r.name.strip().lower(), r.quantity)
+        for r in scraped_results
+    }
 
     for r in scraped_results:
-        key = r.name.strip().lower()
+        key = (r.name.strip().lower(), r.quantity)
         if key in known:
             known[key].last_seen_at = now
             known[key].is_available = True
         else:
-            db.add(Listing(event_id=event_id, name=r.name.strip(), is_available=True, last_seen_at=now))
+            db.add(Listing(
+                event_id=event_id,
+                name=r.name.strip(),
+                quantity=r.quantity,
+                is_available=True,
+                last_seen_at=now,
+            ))
 
     for db_listing in db_listings:
-        if db_listing.name.strip().lower() not in scraped_names:
+        key = (db_listing.name.strip().lower(), db_listing.quantity)
+        if key not in scraped_keys:
             db_listing.is_available = False
 
 
@@ -272,10 +291,10 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     snapshot_chart_data = []
 
     for listing in listings:
-        watch_result = await db.execute(
-            select(UserWatch).where(UserWatch.listing_id == listing.id).limit(1)
+        watches_result = await db.execute(
+            select(UserWatch).where(UserWatch.listing_id == listing.id)
         )
-        watch = watch_result.scalar_one_or_none()
+        watches = watches_result.scalars().all()
 
         snaps_result = await db.execute(
             select(PriceSnapshot)
@@ -290,15 +309,20 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
             listings_data.append({
                 "id": listing.id,
                 "name": listing.name,
+                "quantity": listing.quantity,
                 "is_available": listing.is_available,
                 "last_seen_at": listing.last_seen_at,
                 "current_price": snapshots[-1].price,
-                "watch": {
-                    "id": watch.id,
-                    "target_price": watch.target_price,
-                    "refresh_interval_minutes": watch.refresh_interval_minutes,
-                    "alert_cooldown_minutes": watch.alert_cooldown_minutes,
-                } if watch else None,
+                "watches": [
+                    {
+                        "id": w.id,
+                        "target_price": w.target_price,
+                        "refresh_interval_minutes": w.refresh_interval_minutes,
+                        "alert_cooldown_minutes": w.alert_cooldown_minutes,
+                        "quantity": w.quantity,
+                    }
+                    for w in watches
+                ],
                 "snapshots": snaps_dicts,
                 "snapshot_count": len(snapshots),
             })
@@ -312,6 +336,37 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
 
     logger.info(f"listings_data: {len(listings_data)} total, "
                 f"{sum(1 for l in listings_data if not l['is_available'])} unavailable")
+
+    av_watches_result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_active == True)
+        .order_by(AvailabilityWatch.section_name, AvailabilityWatch.quantity)
+    )
+    av_watches = av_watches_result.scalars().all()
+    av_watches_data = [
+        {
+            "id": w.id,
+            "section_name": w.section_name,
+            "quantity": w.quantity,
+            "target_price": w.target_price,
+            "alert_cooldown_minutes": w.alert_cooldown_minutes,
+            "last_alerted_at": w.last_alerted_at.isoformat()
+                               if w.last_alerted_at else None,
+        }
+        for w in av_watches
+    ]
+
+    seen_sections_result = await db.execute(
+        select(Listing.name, Listing.quantity)
+        .where(Listing.event_id == event_id)
+        .where(Listing.is_available == False)
+        .order_by(Listing.name, Listing.quantity)
+    )
+    seen_sections = [
+        {"name": row[0], "quantity": row[1]}
+        for row in seen_sections_result.all()
+    ]
 
     available_quantities = _parse_quantities(event_obj.available_quantities)
     return templates.TemplateResponse(request, "event.html", {
@@ -328,6 +383,8 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         "listings": listings_data,
         "snapshot_chart_data": snapshot_chart_data,
         "ai_enabled": bool(get_settings().ai_api_key),
+        "availability_watches": av_watches_data,
+        "seen_sections": seen_sections,
     })
 
 
@@ -373,32 +430,34 @@ async def add_event(
         event_date=event_date,
         ticketmaster_url=url,
         available_quantities=",".join(str(q) for q in available_quantities),
-        quantity=None,
+        quantity=available_quantities[0] if available_quantities else 1,
         added_at=now,
         is_active=True,
     )
     db.add(event)
     await db.flush()
 
+    listing_map: dict[tuple[str, int | None], int] = {}
     for r in scraped_results:
         db.add(Listing(
             event_id=event.id,
             name=r.name.strip(),
+            quantity=r.quantity,
             is_available=True,
             last_seen_at=now,
         ))
 
     await db.flush()
 
-    listings_result = await db.execute(
+    saved_listings_result = await db.execute(
         select(Listing).where(Listing.event_id == event.id)
     )
-    saved_listings = listings_result.scalars().all()
-    listing_map = {l.name.strip().lower(): l.id for l in saved_listings}
+    for l in saved_listings_result.scalars().all():
+        listing_map[(l.name.strip().lower(), l.quantity)] = l.id
 
     for r in scraped_results:
-        lid = listing_map.get(r.name.strip().lower())
-        if lid:
+        lid = listing_map.get((r.name.strip().lower(), r.quantity))
+        if lid and r.min_price > 0:
             db.add(PriceSnapshot(
                 listing_id=lid,
                 price=r.min_price,
@@ -406,70 +465,15 @@ async def add_event(
             ))
 
     await db.commit()
-    return RedirectResponse(url=f"/events/{event.id}/setup", status_code=303)
+    return RedirectResponse(url=f"/events/{event.id}", status_code=303)
 
 
 @router.post("/events/{event_id}/quantity")
-async def update_quantity(
-    event_id: int,
-    quantity: int = Form(...),
-    db: AsyncSession = Depends(get_db),
-):
-    event_result = await db.execute(select(Event).where(Event.id == event_id))
-    event = event_result.scalar_one_or_none()
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    valid_quantities = _parse_quantities(event.available_quantities)
-    if quantity not in valid_quantities:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Quantity {quantity} is not available for this event"},
-        )
-
-    event.quantity = quantity
-    await db.flush()
-
-    # Re-scrape filtered by the chosen quantity so stored prices reflect real availability
-    try:
-        loop = asyncio.get_event_loop()
-        scraped_results, _ = await loop.run_in_executor(None, _scrape_sync, event.ticketmaster_url, quantity)
-    except Exception as e:
-        logger.error("Quantity scrape failed for event %d: %s", event_id, e)
-        scraped_results = []
-
-    if scraped_results:
-        now = datetime.now(timezone.utc)
-        listings_result = await db.execute(select(Listing).where(Listing.event_id == event_id))
-        all_listings = listings_result.scalars().all()
-        listing_map = {l.name.strip().lower(): l.id for l in all_listings}
-
-        # Get all listing IDs for this event
-        all_listing_ids_result = await db.execute(
-            select(Listing.id).where(Listing.event_id == event_id)
-        )
-        all_listing_ids = all_listing_ids_result.scalars().all()
-
-        # Delete old snapshots so stale unfiltered prices don't show
-        if all_listing_ids:
-            from sqlalchemy import delete
-            await db.execute(
-                delete(PriceSnapshot).where(PriceSnapshot.listing_id.in_(all_listing_ids))
-            )
-
-        logger.info(f"Quantity set to {quantity} for event {event_id} — deleted old snapshots, saving {len(scraped_results)} new ones")
-
-        for r in scraped_results:
-            lid = listing_map.get(r.name.strip().lower())
-            if lid and r.min_price > 0:
-                db.add(PriceSnapshot(
-                    listing_id=lid,
-                    price=r.min_price,
-                    scraped_at=now,
-                ))
-
-    await db.commit()
-    return RedirectResponse(url=f"/events/{event_id}", status_code=303)
+async def update_quantity(event_id: int):
+    return JSONResponse(
+        status_code=410,
+        content={"error": "Per-event quantity is no longer supported. Set quantity per watch instead."},
+    )
 
 
 @router.post("/events/{event_id}/toggle")
@@ -540,7 +544,7 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
     try:
         loop = asyncio.get_event_loop()
         scraped_results, _ = await loop.run_in_executor(
-            None, _scrape_sync, event.ticketmaster_url, event.quantity
+            None, _scrape_sync, event.ticketmaster_url
         )
     except Exception as e:
         logger.error("Manual scrape failed for event %d: %s", event_id, e)
@@ -552,10 +556,12 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
         select(Listing).where(Listing.event_id == event_id)
     )
     all_listings = listings_result.scalars().all()
-    listing_map = {l.name.strip().lower(): l.id for l in all_listings}
+    listing_map: dict[tuple[str, int | None], int] = {
+        (l.name.strip().lower(), l.quantity): l.id for l in all_listings
+    }
 
     for r in scraped_results:
-        lid = listing_map.get(r.name.strip().lower())
+        lid = listing_map.get((r.name.strip().lower(), r.quantity))
         if lid and r.min_price > 0:
             db.add(PriceSnapshot(
                 listing_id=lid,
@@ -581,6 +587,7 @@ async def set_watch(
     target_price: float = Form(...),
     refresh_interval_minutes: int = Form(...),
     alert_cooldown_minutes: int = Form(...),
+    quantity: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     listing_result = await db.execute(select(Listing).where(Listing.id == listing_id))
@@ -588,7 +595,10 @@ async def set_watch(
         raise HTTPException(status_code=404, detail="Listing not found")
 
     existing_result = await db.execute(
-        select(UserWatch).where(UserWatch.listing_id == listing_id).limit(1)
+        select(UserWatch)
+        .where(UserWatch.listing_id == listing_id)
+        .where(UserWatch.quantity == quantity)
+        .limit(1)
     )
     watch = existing_result.scalar_one_or_none()
     created = watch is None
@@ -597,6 +607,7 @@ async def set_watch(
         watch.target_price = target_price
         watch.refresh_interval_minutes = refresh_interval_minutes
         watch.alert_cooldown_minutes = alert_cooldown_minutes
+        watch.quantity = quantity
         watch.is_active = True
     else:
         watch = UserWatch(
@@ -604,6 +615,7 @@ async def set_watch(
             target_price=target_price,
             refresh_interval_minutes=refresh_interval_minutes,
             alert_cooldown_minutes=alert_cooldown_minutes,
+            quantity=quantity,
             is_active=True,
         )
         db.add(watch)
@@ -612,6 +624,21 @@ async def set_watch(
     schedule_watch_job(watch)
     await db.commit()
     return JSONResponse({"watch_id": watch.id, "created": created})
+
+
+@router.delete("/watches/{watch_id}")
+async def delete_watch_by_id(watch_id: int, db: AsyncSession = Depends(get_db)):
+    watch_result = await db.execute(
+        select(UserWatch).where(UserWatch.id == watch_id).limit(1)
+    )
+    watch = watch_result.scalar_one_or_none()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Watch not found")
+
+    remove_watch_job(watch.id)
+    await db.delete(watch)
+    await db.commit()
+    return JSONResponse({"deleted": True})
 
 
 @router.delete("/listings/{listing_id}/watch")
@@ -643,6 +670,79 @@ async def price_history(listing_id: int, db: AsyncSession = Depends(get_db)):
             for s in snapshots
         ]
     })
+
+
+@router.post("/events/{event_id}/availability-watches")
+async def create_availability_watch(
+    event_id: int,
+    section_name: str = Form(...),
+    quantity: int = Form(...),
+    target_price: float | None = Form(None),
+    alert_cooldown_minutes: int = Form(60),
+    db: AsyncSession = Depends(get_db),
+):
+    event_result = await db.execute(
+        select(Event).where(Event.id == event_id)
+    )
+    if not event_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    existing_result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.section_name == section_name.strip())
+        .where(AvailabilityWatch.quantity == quantity)
+    )
+    watch = existing_result.scalar_one_or_none()
+
+    if watch:
+        watch.target_price = target_price
+        watch.alert_cooldown_minutes = alert_cooldown_minutes
+        watch.is_active = True
+    else:
+        watch = AvailabilityWatch(
+            event_id=event_id,
+            section_name=section_name.strip(),
+            quantity=quantity,
+            target_price=target_price,
+            alert_cooldown_minutes=alert_cooldown_minutes,
+            is_active=True,
+        )
+        db.add(watch)
+
+    await db.flush()
+    await db.commit()
+    schedule_availability_job(event_id)
+    return JSONResponse({"created": watch.id is None, "watch_id": watch.id})
+
+
+@router.delete("/events/{event_id}/availability-watches/{watch_id}")
+async def delete_availability_watch(
+    event_id: int,
+    watch_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.id == watch_id)
+        .where(AvailabilityWatch.event_id == event_id)
+    )
+    watch = result.scalar_one_or_none()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    await db.delete(watch)
+    await db.commit()
+
+    remaining = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_active == True)
+        .limit(1)
+    )
+    if not remaining.scalar_one_or_none():
+        remove_availability_job(event_id)
+
+    return JSONResponse({"deleted": True})
 
 
 @router.post("/listings/{listing_id}/summarize")

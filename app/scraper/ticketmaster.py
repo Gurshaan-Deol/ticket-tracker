@@ -31,22 +31,22 @@ _NAME_CHILD_SELECTORS = [
 class ListingResult:
     name: str
     min_price: float
+    quantity: int | None = None
 
 
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
-def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
+def scrape_event_sync(url: str) -> tuple[list[ListingResult], list[int]]:
     """
     Run scrape_event in a dedicated thread with its own event loop.
-    Returns (listings, available_quantities).
-    quantity=None means no filtering — return all listings and discover available quantities.
+    Returns (listings, available_quantities). Always unfiltered — one result per section+quantity.
     """
     def _run():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(scrape_event(url, quantity))
+            return loop.run_until_complete(scrape_event(url))
         finally:
             loop.close()
 
@@ -59,13 +59,12 @@ def scrape_event_sync(url: str, quantity: int | None = None) -> tuple[list[Listi
 # ---------------------------------------------------------------------------
 
 
-async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
-    """Returns (listings, available_quantities). quantity=None → no filter."""
-    qty_label = str(quantity) if quantity is not None else "all"
-    logger.info("Scrape started — %s (qty=%s)", url, qty_label)
+async def scrape_event(url: str) -> tuple[list[ListingResult], list[int]]:
+    """Returns (listings, available_quantities). Always unfiltered — one result per section+quantity."""
+    logger.info("Scrape started — %s", url)
     try:
         async with managed_browser_context() as ctx:
-            results, available_quantities = await _scrape_page(ctx, url, quantity)
+            results, available_quantities = await _scrape_page(ctx, url)
         logger.info(
             "Scrape finished — %d listing(s), available qty=%s for %s",
             len(results), available_quantities, url,
@@ -81,7 +80,7 @@ async def scrape_event(url: str, quantity: int | None = None) -> tuple[list[List
 # ---------------------------------------------------------------------------
 
 
-async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[list[ListingResult], list[int]]:
+async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int]]:
     page = await context.new_page()
     pending_responses = []
 
@@ -140,7 +139,7 @@ async def _scrape_page(context, url: str, quantity: int | None = None) -> tuple[
         available_quantities = extract_available_quantities(captured_data)
 
         # Approach A — parse captured API responses
-        results = _extract_from_api_responses(captured_data, quantity)
+        results = _extract_from_api_responses(captured_data)
         if results:
             logger.debug("API approach yielded %d result(s)", len(results))
             return results, available_quantities
@@ -193,20 +192,13 @@ def extract_available_quantities(responses: list[dict]) -> list[int]:
     return result
 
 
-def _extract_from_api_responses(responses: list[dict], quantity: int | None = None) -> list[ListingResult]:
+def _extract_from_api_responses(responses: list[dict]) -> list[ListingResult]:
     raw: list[ListingResult] = []
 
     for resp_data in responses:
         try:
             # Path A — _embedded.offer (singular)
             offers_list = resp_data.get("_embedded", {}).get("offer", [])
-            if isinstance(offers_list, list) and offers_list and quantity is not None:
-                all_sellable = set()
-                for item in offers_list:
-                    sq = item.get("sellableQuantities", [])
-                    if sq:
-                        all_sellable.update(sq)
-                logger.debug(f"Quantity filter={quantity}, all sellableQuantities found: {sorted(all_sellable)}")
             if isinstance(offers_list, list) and offers_list:
                 path_a: list[ListingResult] = []
                 for item in offers_list:
@@ -219,10 +211,6 @@ def _extract_from_api_responses(responses: list[dict], quantity: int | None = No
                     section = item.get("section")
                     if not section or not str(section).strip():
                         continue
-                    if quantity is not None:
-                        sellable = item.get("sellableQuantities")
-                        if sellable and quantity not in sellable:
-                            continue
                     price = item.get("listPrice") or item.get("totalPrice")
                     try:
                         price = float(price)  # type: ignore[arg-type]
@@ -230,11 +218,19 @@ def _extract_from_api_responses(responses: list[dict], quantity: int | None = No
                         continue
                     if price <= 0:
                         continue
-                    path_a.append(ListingResult(name=str(section).strip(), min_price=price))
+                    sellable = item.get("sellableQuantities") or []
+                    if not sellable:
+                        sellable = [None]
+                    for qty in sellable:
+                        path_a.append(ListingResult(
+                            name=str(section).strip(),
+                            min_price=price,
+                            quantity=int(qty) if qty is not None else None,
+                        ))
                 logger.debug("Path A (_embedded.offer): %d result(s)", len(path_a))
                 raw.extend(path_a)
 
-            # Path B — top-level "sections" list
+            # Path B — top-level "sections" list (no per-quantity data available)
             sections_list = resp_data.get("sections", [])
             if isinstance(sections_list, list) and sections_list:
                 path_b: list[ListingResult] = []
@@ -260,15 +256,15 @@ def _extract_from_api_responses(responses: list[dict], quantity: int | None = No
 
     logger.info("API extraction: %d raw result(s) found", len(raw))
 
-    # Deduplicate by section name, keeping lowest price, sorted ascending.
-    best: dict[str, ListingResult] = {}
+    # Deduplicate by (section name, quantity), keeping lowest price, sorted ascending.
+    best: dict[tuple[str, int | None], ListingResult] = {}
     for r in raw:
-        key = r.name.lower()
+        key = (r.name.lower(), r.quantity)
         if key not in best or r.min_price < best[key].min_price:
             best[key] = r
 
     result = sorted(best.values(), key=lambda r: r.min_price)
-    logger.info("API extraction: %d unique section(s) after dedup", len(result))
+    logger.info("API extraction: %d unique section+quantity(s) after dedup", len(result))
     return result
 
 

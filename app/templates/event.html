@@ -23,40 +23,7 @@
            class="text-green-400 hover:text-green-300 transition">
           View on Ticketmaster ↗
         </a>
-      </div>
-
-      <!-- Quantity display -->
-      <div class="mt-3 flex items-center gap-3 flex-wrap">
-        <span id="qty-display" class="text-sm text-gray-300">
-          {% if event.quantity %}
-            Tracking prices for <strong class="text-white">{{ event.quantity }}</strong> ticket{{ 's' if event.quantity != 1 else '' }}
-          {% else %}
-            <span class="text-yellow-400">No ticket quantity set</span>
-          {% endif %}
-        </span>
         <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">Resale only</span>
-        <button id="qty-edit-btn"
-                class="text-xs text-gray-500 hover:text-gray-300 underline transition">
-          Edit
-        </button>
-      </div>
-
-      <!-- Inline quantity editor (hidden by default) -->
-      <div id="qty-editor" class="hidden mt-2 flex items-center gap-2 flex-wrap">
-        {% for n in available_quantities %}
-        <button type="button"
-                class="qty-edit-btn px-3 py-1.5 rounded-full text-sm font-medium border transition
-                       {% if event.quantity == n %}bg-green-700 border-green-500 text-white{% else %}border-gray-600 text-gray-400 hover:border-green-500 hover:text-green-400{% endif %}"
-                data-qty="{{ n }}">{{ n }}</button>
-        {% endfor %}
-        <button id="qty-save-btn"
-                class="ml-2 bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm transition">
-          Save
-        </button>
-        <button id="qty-cancel-btn"
-                class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition">
-          Cancel
-        </button>
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -82,19 +49,29 @@
 <!-- Available Now -->
 {% if available_listings %}
 <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-2">Available Now</h2>
+<div class="flex items-center gap-2 mb-3 flex-wrap">
+  <span class="text-xs text-gray-500">Show:</span>
+  <button class="qty-filter-btn text-xs px-3 py-1 rounded-full font-medium transition
+                 bg-gray-700 text-white" data-qty="all">All</button>
+  {% for n in available_quantities %}
+  <button class="qty-filter-btn text-xs px-3 py-1 rounded-full font-medium transition
+                 bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+          data-qty="{{ n }}">{{ n }} ticket{{ 's' if n != 1 else '' }}</button>
+  {% endfor %}
+</div>
 <div class="overflow-x-auto rounded-lg border border-gray-800 mb-8">
-  <table class="w-full text-sm">
+  <table class="w-full text-sm table-fixed">
     <thead>
       <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort="name">
+        <th class="px-4 py-3 font-medium cursor-pointer select-none w-36" data-sort="name">
           Section <span class="sort-indicator ml-1"></span>
         </th>
-        <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium cursor-pointer select-none" data-sort="price">
+        <th class="px-4 py-3 font-medium w-24">Status</th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none w-32" data-sort="price">
           Price <span class="sort-indicator ml-1">▲</span>
         </th>
-        <th class="px-4 py-3 font-medium">Your Target</th>
-        <th class="px-4 py-3 font-medium">Interval</th>
+        <th class="px-4 py-3 font-medium w-32">Your Target</th>
+        <th class="px-4 py-3 font-medium w-20">Interval</th>
         <th class="px-4 py-3 font-medium">Actions</th>
       </tr>
     </thead>
@@ -103,8 +80,16 @@
       <!-- Main listing row -->
       <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}"
           data-name="{{ l.name | lower }}"
-          data-price="{{ l.current_price if l.current_price is not none else 999999 }}">
-        <td class="px-4 py-3 font-medium">{{ l.name }}</td>
+          data-price="{{ l.current_price if l.current_price is not none else 999999 }}"
+          data-quantity="{{ l.quantity or '' }}">
+        <td class="px-4 py-3 font-medium truncate">
+          {{ l.name }}
+          {% if l.quantity %}
+          <span class="ml-1 text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
+            {{ l.quantity }}×
+          </span>
+          {% endif %}
+        </td>
         <td class="px-4 py-3">
           <span class="text-xs bg-green-950 text-green-400 border border-green-900 px-2 py-0.5 rounded-full">
             Available
@@ -117,11 +102,25 @@
             Show price history
           </button>
         </td>
-        <td class="px-4 py-3 font-mono {% if l.watch %}text-green-400{% else %}text-gray-600{% endif %}">
-          {% if l.watch %}${{ "%.2f" | format(l.watch.target_price) }}{% else %}—{% endif %}
+        <td class="px-4 py-3">
+          {% if l.watches %}
+            {% for w in l.watches %}
+            <div class="font-mono text-green-400 text-xs">
+              {{ w.quantity or '?' }}× — ${{ "%.2f" | format(w.target_price) }}
+            </div>
+            {% endfor %}
+          {% else %}
+            <span class="text-gray-600">—</span>
+          {% endif %}
         </td>
-        <td class="px-4 py-3 text-gray-400">
-          {% if l.watch %}{{ l.watch.refresh_interval_minutes }}m{% else %}—{% endif %}
+        <td class="px-4 py-3">
+          {% if l.watches %}
+            {% for w in l.watches %}
+            <div class="text-xs text-gray-400">{{ w.refresh_interval_minutes }}m</div>
+            {% endfor %}
+          {% else %}
+            <span class="text-gray-600">—</span>
+          {% endif %}
         </td>
         <td class="px-4 py-3">
           <div class="flex gap-2 flex-wrap">
@@ -129,12 +128,13 @@
                     data-listing-id="{{ l.id }}">
               Set Watch
             </button>
-            {% if l.watch %}
+            {% for w in l.watches %}
             <button class="remove-watch-btn text-xs bg-red-900 hover:bg-red-800 text-white px-2 py-1 rounded transition"
+                    data-watch-id="{{ w.id }}"
                     data-listing-id="{{ l.id }}">
-              Remove
+              Remove ({{ w.quantity or '?' }}×)
             </button>
-            {% endif %}
+            {% endfor %}
             {% if ai_enabled and l.snapshot_count >= 5 %}
             <button class="ai-summary-btn text-xs bg-indigo-900 hover:bg-indigo-800 text-white px-2 py-1 rounded transition"
                     data-listing-id="{{ l.id }}">
@@ -150,9 +150,20 @@
         <td colspan="6" class="px-4 py-4">
           <form class="save-watch-form flex flex-wrap gap-4 items-end" data-listing-id="{{ l.id }}">
             <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Tickets</label>
+              <select name="quantity" required
+                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
+                             text-sm w-24 focus:outline-none focus:border-green-500">
+                <option value="">Select</option>
+                {% for n in available_quantities %}
+                <option value="{{ n }}">{{ n }} ticket{{ 's' if n != 1 else '' }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Target Price ($)</label>
               <input type="number" name="target_price" step="0.01" min="0.01" required
-                     value="{{ l.watch.target_price if l.watch else '' }}"
+                     value=""
                      placeholder="e.g. 150.00"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-32
                             focus:outline-none focus:border-green-500">
@@ -160,14 +171,14 @@
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Check every (min)</label>
               <input type="number" name="refresh_interval_minutes" min="5" required
-                     value="{{ l.watch.refresh_interval_minutes if l.watch else 30 }}"
+                     value="30"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
                             focus:outline-none focus:border-green-500">
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Alert cooldown (min)</label>
               <input type="number" name="alert_cooldown_minutes" min="5" required
-                     value="{{ l.watch.alert_cooldown_minutes if l.watch else 60 }}"
+                     value="60"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
                             focus:outline-none focus:border-green-500">
             </div>
@@ -241,6 +252,112 @@
 </div>
 {% endif %}
 
+<!-- Watch for Unavailable Section -->
+<div class="mt-6 mb-8">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+    Watch for Unavailable Section
+  </h2>
+
+  <!-- Existing availability watches -->
+  {% if availability_watches %}
+  <div class="flex flex-col gap-2 mb-4">
+    {% for w in availability_watches %}
+    <div class="flex items-center justify-between text-sm
+                bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="font-medium text-gray-200">{{ w.section_name }}</span>
+        <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">
+          {{ w.quantity }}×
+        </span>
+        {% if w.target_price %}
+        <span class="text-xs text-green-400">
+          Alert if ≤ ${{ "%.2f" | format(w.target_price) }}
+        </span>
+        {% else %}
+        <span class="text-xs text-gray-500">Alert on any price</span>
+        {% endif %}
+        {% if w.last_alerted_at %}
+        <span class="text-xs text-gray-600">
+          Last alerted: {{ w.last_alerted_at }}
+        </span>
+        {% endif %}
+      </div>
+      <button class="remove-av-watch-btn text-xs bg-red-900
+                     hover:bg-red-800 text-white px-2 py-1
+                     rounded transition"
+              data-watch-id="{{ w.id }}"
+              data-event-id="{{ event.id }}">
+        Remove
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Add new availability watch form -->
+  <div class="p-4 bg-gray-900 border border-gray-700 rounded-lg">
+    <form id="av-watch-form" class="flex flex-wrap gap-4 items-end">
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-gray-500">Section</label>
+        <input list="seen-sections-list"
+               id="av-section-input"
+               name="section_name"
+               required
+               placeholder="e.g. Section 101"
+               class="bg-gray-800 border border-gray-700 rounded
+                      px-2 py-1.5 text-sm w-44
+                      focus:outline-none focus:border-green-500">
+        <datalist id="seen-sections-list">
+          {% for s in seen_sections %}
+          <option value="{{ s.name }}">
+          {% endfor %}
+        </datalist>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-gray-500">Tickets</label>
+        <select name="quantity" required
+                class="bg-gray-800 border border-gray-700 rounded
+                       px-2 py-1.5 text-sm w-28
+                       focus:outline-none focus:border-green-500">
+          <option value="">Select</option>
+          {% for n in available_quantities %}
+          <option value="{{ n }}">
+            {{ n }} ticket{{ 's' if n != 1 else '' }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-gray-500">Target Price (optional)</label>
+        <input type="number" name="target_price"
+               step="0.01" min="0.01"
+               placeholder="Any price"
+               class="bg-gray-800 border border-gray-700 rounded
+                      px-2 py-1.5 text-sm w-32
+                      focus:outline-none focus:border-green-500">
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-gray-500">Alert cooldown (min)</label>
+        <input type="number" name="alert_cooldown_minutes"
+               min="5" value="60"
+               class="bg-gray-800 border border-gray-700 rounded
+                      px-2 py-1.5 text-sm w-24
+                      focus:outline-none focus:border-green-500">
+      </div>
+
+      <button type="submit"
+              class="bg-green-700 hover:bg-green-600 text-white
+                     px-4 py-1.5 rounded text-sm transition">
+        Watch Section
+      </button>
+    </form>
+  </div>
+</div>
+
 {% else %}
 <p class="text-center text-gray-600 py-12">
   No listings found yet. Click <strong class="text-gray-400">Scrape Now</strong> to load listings.
@@ -249,50 +366,32 @@
 
 
 <script>
-  // ── Quantity editor ──────────────────────────────────────────────────────────
-  var selectedQty = {{ event.quantity or 'null' }};
+  // ── Quantity filter pills ────────────────────────────────────────────────────
+  var activeQtyFilter = 'all';
 
-  document.getElementById('qty-edit-btn').addEventListener('click', function () {
-    document.getElementById('qty-editor').classList.remove('hidden');
-  });
-
-  document.getElementById('qty-cancel-btn').addEventListener('click', function () {
-    document.getElementById('qty-editor').classList.add('hidden');
-  });
-
-  document.querySelectorAll('.qty-edit-btn').forEach(function (btn) {
+  document.querySelectorAll('.qty-filter-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      selectedQty = parseInt(this.dataset.qty, 10);
-      document.querySelectorAll('.qty-edit-btn').forEach(function (b) {
-        b.classList.remove('bg-green-700', 'border-green-500', 'text-white');
-        b.classList.add('border-gray-600', 'text-gray-400');
-      });
-      this.classList.add('bg-green-700', 'border-green-500', 'text-white');
-      this.classList.remove('border-gray-600', 'text-gray-400');
-    });
-  });
+      activeQtyFilter = this.dataset.qty;
 
-  document.getElementById('qty-save-btn').addEventListener('click', async function () {
-    if (!selectedQty) return;
-    this.disabled = true;
-    this.textContent = 'Fetching prices…';
-    try {
-      const fd = new FormData();
-      fd.append('quantity', selectedQty);
-      const resp = await fetch('/events/{{ event.id }}/quantity', { method: 'POST', body: fd });
-      if (resp.ok) {
-        window.location.reload();
-      } else {
-        const data = await resp.json();
-        alert(data.error || 'Failed to save quantity');
-        this.disabled = false;
-        this.textContent = 'Save';
-      }
-    } catch (e) {
-      alert('Failed to save quantity: ' + e.message);
-      this.disabled = false;
-      this.textContent = 'Save';
-    }
+      document.querySelectorAll('.qty-filter-btn').forEach(function (b) {
+        b.classList.remove('bg-gray-700', 'text-white');
+        b.classList.add('bg-gray-800', 'text-gray-400');
+      });
+      this.classList.add('bg-gray-700', 'text-white');
+      this.classList.remove('bg-gray-800', 'text-gray-400');
+
+      document.querySelectorAll('tr[data-quantity]').forEach(function (row) {
+        var qty = row.dataset.quantity;
+        var show = activeQtyFilter === 'all' || qty === activeQtyFilter;
+        row.style.display = show ? '' : 'none';
+
+        var id = row.id.replace('listing-row-', '');
+        ['watch-form-', 'ai-row-', 'chart-row-'].forEach(function (prefix) {
+          var r = document.getElementById(prefix + id);
+          if (r) r.style.display = show ? '' : 'none';
+        });
+      });
+    });
   });
 
   // ── Scrape Now ──────────────────────────────────────────────────────────────
@@ -304,7 +403,8 @@
       const resp = await fetch('/events/{{ event.id }}/scrape');
       const data = await resp.json();
       if (resp.ok) {
-        window.location.reload();
+        window.location.href = window.location.pathname +
+          (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
       } else {
         window.stopScrapeOverlay();
         alert('Scrape failed: ' + (data.error || 'unknown error'));
@@ -345,7 +445,8 @@
           body: new FormData(this),
         });
         if (resp.ok) {
-          window.location.reload();
+          window.location.href = window.location.pathname +
+            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
         } else {
           const data = await resp.json();
           alert('Failed to save watch: ' + (data.detail || 'unknown error'));
@@ -360,10 +461,11 @@
   document.querySelectorAll('.remove-watch-btn').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       if (!confirm('Remove watch for this listing?')) return;
-      const id = this.dataset.listingId;
+      const watchId = this.dataset.watchId;
       try {
-        const resp = await fetch('/listings/' + id + '/watch', { method: 'DELETE' });
-        if (resp.ok) window.location.reload();
+        const resp = await fetch('/watches/' + watchId, { method: 'DELETE' });
+        if (resp.ok) window.location.href = window.location.pathname +
+          (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
       } catch (e) {
         alert('Failed to remove watch: ' + e.message);
       }
@@ -558,6 +660,59 @@
       this.disabled = false;
     });
   });
+  // ── Availability watch form ───────────────────────────────────────────────
+  var avWatchForm = document.getElementById('av-watch-form');
+  if (avWatchForm) avWatchForm.addEventListener(
+    'submit', async function (e) {
+      e.preventDefault();
+      const fd = new FormData(this);
+      try {
+        const resp = await fetch(
+          '/events/{{ event.id }}/availability-watches',
+          { method: 'POST', body: fd }
+        );
+        if (resp.ok) {
+          window.location.href = window.location.pathname +
+            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
+        } else {
+          const data = await resp.json();
+          alert('Failed: ' + (data.detail || 'unknown error'));
+        }
+      } catch (err) {
+        alert('Failed: ' + err.message);
+      }
+    }
+  );
+
+  document.querySelectorAll('.remove-av-watch-btn').forEach(
+    function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('Remove this availability watch?')) return;
+        const watchId = this.dataset.watchId;
+        const eventId = this.dataset.eventId;
+        try {
+          const resp = await fetch(
+            '/events/' + eventId + '/availability-watches/' + watchId,
+            { method: 'DELETE' }
+          );
+          if (resp.ok) window.location.href = window.location.pathname +
+            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
+        } catch (err) {
+          alert('Failed: ' + err.message);
+        }
+      });
+    }
+  );
+  // ── Restore quantity filter from URL hash on page load ───────────────────
+  (function () {
+    var hash = window.location.hash;
+    if (!hash || !hash.startsWith('#qty-')) return;
+    var qty = hash.replace('#qty-', '');
+    var btn = document.querySelector(
+      '.qty-filter-btn[data-qty="' + qty + '"]'
+    );
+    if (btn) btn.click();
+  })();
 </script>
 
 {% endblock %}
