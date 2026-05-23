@@ -1,7 +1,6 @@
 import asyncio
 import logging
-import smtplib
-from email.mime.text import MIMEText
+import re
 
 from app.notifier.base import BaseNotifier
 
@@ -29,14 +28,17 @@ class EmailNotifier(BaseNotifier):
     async def send(self, message: str) -> None:
         def _send_sync():
             import smtplib
-            from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            plain = re.sub(r"<[^>]+>", "", message)
 
             msg = MIMEMultipart("alternative")
             msg["Subject"] = "Ticket Price Alert"
             msg["From"] = self.smtp_user
             msg["To"] = self.to_address
-            msg.attach(MIMEText(message, "plain"))
+            msg.attach(MIMEText(plain, "plain"))
+            msg.attach(MIMEText(message, "html"))
 
             if self.smtp_port == 465:
                 # SSL connection

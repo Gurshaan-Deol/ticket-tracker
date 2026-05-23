@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -71,3 +71,9 @@ class AlertLog(Base):
     channels_used: Mapped[str] = mapped_column(String, nullable=False)
 
     listing: Mapped["Listing"] = relationship("Listing", back_populates="alert_logs")
+
+
+Index("ix_listings_event_id", Listing.event_id)
+Index("ix_user_watches_listing_id", UserWatch.listing_id)
+Index("ix_price_snapshots_listing_id", PriceSnapshot.listing_id)
+Index("ix_alert_log_listing_alerted", AlertLog.listing_id, AlertLog.alerted_at)

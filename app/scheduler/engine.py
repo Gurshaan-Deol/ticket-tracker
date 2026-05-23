@@ -39,6 +39,7 @@ def schedule_watch_job(watch: UserWatch) -> None:
         args=[watch.id],
         replace_existing=True,
         misfire_grace_time=300,
+        max_instances=1,
     )
     logger.info("Scheduled job %s (every %d min)", job_id, watch.refresh_interval_minutes)
 
