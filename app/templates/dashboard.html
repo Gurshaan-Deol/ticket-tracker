@@ -97,6 +97,11 @@
         {% if e.event_date %}{{ e.event_date }}{% endif %}
       </div>
 
+      <a href="{{ e.ticketmaster_url }}" target="_blank" rel="noopener"
+         class="text-xs text-green-400 hover:text-green-300 transition mt-0.5 inline-block">
+        View on Ticketmaster ↗
+      </a>
+
       <!-- Refresh info (setup-complete events only) -->
       {% if e.setup_complete %}
       <div class="text-xs text-gray-600 mt-1">

@@ -219,6 +219,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "name": event.name,
             "venue": event.venue,
             "event_date": event.event_date,
+            "ticketmaster_url": event.ticketmaster_url,
             "is_active": event.is_active,
             "setup_complete": setup_complete,
             "lowest_price": lowest_price,
