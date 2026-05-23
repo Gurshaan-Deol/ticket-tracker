@@ -147,7 +147,7 @@ async def run_watch_job(watch_id: int) -> None:
             ))
 
             # Step 9: Alert check — only after at least one prior snapshot exists
-            if current_price < watch.target_price:
+            if current_price <= watch.target_price:
                 cooldown_cutoff = now - timedelta(minutes=watch.alert_cooldown_minutes)
                 recent_result = await session.execute(
                     select(AlertLog)
