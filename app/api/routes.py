@@ -358,11 +358,14 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         matching = [l for l in listings_data if l["is_available"] and _matches_ga_keyword(l["name"], keyword)]
         if len(matching) >= 2:
             qty_price_map: dict[str, float] = {}
+            qty_cheapest_id: dict[str, int] = {}
             for l in matching:
                 if l["current_price"] is not None and l["quantity"] is not None:
                     k = str(l["quantity"])
                     if k not in qty_price_map or l["current_price"] < qty_price_map[k]:
                         qty_price_map[k] = l["current_price"]
+                        if l["id"] is not None:
+                            qty_cheapest_id[k] = l["id"]
             lowest = min(qty_price_map.values(), default=None)
             _grouped_avail.append({
                 "id": None,
@@ -372,6 +375,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "is_grouped": True,
                 "current_price": lowest,
                 "quantity_price_map": qty_price_map,
+                "qty_cheapest_id": qty_cheapest_id,
                 "constituent_section_names": [l["name"] for l in matching],
                 "watches": [],
                 "snapshots": [],
@@ -469,8 +473,6 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     used_ids: set[int] = set()
 
     for keyword in GA_GROUP_KEYWORDS:
-        if keyword.upper() in already_grouped_as_available:
-            continue
         matching = [s for s in unavailable_sections if _matches_ga_keyword(s.name, keyword)]
         if len(matching) >= 2:
             agg_qtys = sorted({
@@ -507,9 +509,6 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
 
     for s in unavailable_sections:
         if id(s) in used_ids:
-            continue
-        if any(_matches_ga_keyword(s.name, kw) for kw in GA_GROUP_KEYWORDS
-               if kw.upper() in already_grouped_as_available):
             continue
         section_key = s.name.strip().lower()
         raw_seen = seen_quantities.get(section_key, [])

@@ -87,6 +87,7 @@
           data-price="{{ l.current_price if l.current_price is not none else 999999 }}"
           data-qty-prices='{{ l.quantity_price_map | tojson }}'
           data-constituent-names='{{ l.constituent_section_names | tojson }}'
+          data-qty-cheapest-id='{{ l.qty_cheapest_id | tojson }}'
           data-seen-quantities='{{ l.quantity_price_map.keys() | list | tojson }}'
           data-is-grouped="true"
           data-display-name="{{ l.name }}">
@@ -110,9 +111,68 @@
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
         <td class="px-4 py-3">
-          <button class="avail-grouped-bell-btn text-xs border border-gray-700 text-gray-500 bg-gray-900 hover:border-gray-500 rounded px-2 py-1">
-            🔕 Notify me
-          </button>
+          <div class="flex gap-2 flex-wrap">
+            <button class="grouped-set-watch-btn text-xs bg-green-800
+                           hover:bg-green-700 text-white px-2 py-1
+                           rounded transition">
+              Set Watch
+            </button>
+          </div>
+        </td>
+      </tr>
+      <tr class="border-b border-gray-800 bg-gray-900/60 hidden"
+          id="grouped-watch-form-{{ loop.index }}">
+        <td colspan="6" class="px-4 py-4">
+          <form class="grouped-save-watch-form flex flex-wrap gap-4 items-end"
+                data-loop-index="{{ loop.index }}">
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Tickets</label>
+              <select name="quantity" required
+                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
+                             text-sm w-24 focus:outline-none focus:border-green-500">
+                <option value="">Select</option>
+                {% for qty, price in l.quantity_price_map.items() %}
+                <option value="{{ qty }}">
+                  {{ qty }} ticket{{ 's' if qty|int != 1 else '' }} — ${{ "%.2f" | format(price) }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Target Price ($)</label>
+              <input type="number" name="target_price" step="0.01" min="0.01" required
+                     placeholder="e.g. 150.00"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
+                            text-sm w-32 focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Check every (min)</label>
+              <input type="number" name="refresh_interval_minutes" min="5" required
+                     value="30"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
+                            text-sm w-24 focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-gray-500">Alert cooldown (min)</label>
+              <input type="number" name="alert_cooldown_minutes" min="5" required
+                     value="60"
+                     class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
+                            text-sm w-24 focus:outline-none focus:border-green-500">
+            </div>
+            <div class="flex gap-2">
+              <button type="submit"
+                      class="bg-green-700 hover:bg-green-600 text-white px-3
+                             py-1.5 rounded text-sm transition">
+                Save
+              </button>
+              <button type="button"
+                      class="grouped-cancel-watch-btn bg-gray-700 hover:bg-gray-600
+                             text-white px-3 py-1.5 rounded text-sm transition"
+                      data-loop-index="{{ loop.index }}">
+                Cancel
+              </button>
+            </div>
+          </form>
         </td>
       </tr>
       {% else %}
@@ -407,27 +467,71 @@
     }
   });
 
-  // ── Available grouped GA bell button ────────────────────────────────────────
-  document.querySelectorAll('.avail-grouped-bell-btn').forEach(function (btn) {
+  // ── Grouped GA Set Watch ─────────────────────────────────────────────────────
+  document.querySelectorAll('.grouped-set-watch-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var tr = this.closest('tr');
-      var constituentNames = JSON.parse(tr.dataset.constituentNames);
-      var seenQtys = JSON.parse(tr.dataset.seenQuantities).map(Number);
-      var displayName = tr.dataset.displayName;
+      var parentTr = this.closest('tr');
+      var formTr = parentTr.nextElementSibling;
+      formTr.classList.toggle('hidden');
+      if (activeQtyFilter !== 'all') {
+        var qtySelect = formTr.querySelector('[name=quantity]');
+        if (qtySelect) qtySelect.value = activeQtyFilter;
+      }
+    });
+  });
 
-      currentSectionObj = {
-        is_grouped: true,
-        display_name: displayName,
-        name: displayName,
-        section_names: constituentNames,
-        count: constituentNames.length,
-        seen_quantities: seenQtys,
-      };
+  document.querySelectorAll('.grouped-cancel-watch-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var formRow = document.getElementById(
+        'grouped-watch-form-' + this.dataset.loopIndex
+      );
+      if (formRow) formRow.classList.add('hidden');
+    });
+  });
 
-      populateQtySelect(seenQtys);
-      avModalLabel.textContent = displayName + ' (' + constituentNames.length + ' sections)';
-      renderModalWatches();
-      avModal.classList.remove('hidden');
+  document.querySelectorAll('.grouped-save-watch-form').forEach(function (form) {
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var loopIndex = this.dataset.loopIndex;
+      var formRow = document.getElementById('grouped-watch-form-' + loopIndex);
+      var parentTr = formRow.previousElementSibling;
+      var qtyCheapestId = JSON.parse(parentTr.dataset.qtyCheapestId);
+
+      var qtyStr = this.querySelector('[name=quantity]').value;
+      var targetPrice = this.querySelector('[name=target_price]').value;
+      var refreshInterval = this.querySelector('[name=refresh_interval_minutes]').value;
+      var cooldown = this.querySelector('[name=alert_cooldown_minutes]').value;
+
+      if (!qtyStr || !targetPrice) return;
+
+      var listingId = qtyCheapestId[qtyStr];
+      if (!listingId) {
+        alert('No listing found for that quantity.');
+        return;
+      }
+
+      var submitBtn = this.querySelector('[type=submit]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving...';
+
+      var fd = new FormData();
+      fd.append('target_price', targetPrice);
+      fd.append('refresh_interval_minutes', refreshInterval);
+      fd.append('alert_cooldown_minutes', cooldown);
+      fd.append('quantity', qtyStr);
+
+      var resp = await fetch('/listings/' + listingId + '/watch', {
+        method: 'POST', body: fd
+      });
+
+      if (resp.ok) {
+        formRow.classList.add('hidden');
+        window.location.reload();
+      } else {
+        alert('Failed to save watch — please try again.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save';
+      }
     });
   });
 
@@ -437,6 +541,12 @@
       const id = this.dataset.listingId;
       const row = document.getElementById('watch-form-' + id);
       row.classList.toggle('hidden');
+      if (activeQtyFilter !== 'all') {
+        var qtySelect = document.querySelector(
+          '#watch-form-' + id + ' [name=quantity]'
+        );
+        if (qtySelect) qtySelect.value = activeQtyFilter;
+      }
     });
   });
 
@@ -797,7 +907,11 @@
       var btn = e.target.closest('.av-bell-btn');
       if (!btn) return;
       currentSectionObj = UNAVAILABLE_SECTIONS[parseInt(btn.dataset.sectionIdx, 10)];
-      populateQtySelect(currentSectionObj.seen_quantities);
+      var qtys = (currentSectionObj.unavailable_quantities ||
+                  currentSectionObj.seen_quantities || [])
+                  .map(Number)
+                  .filter(function(n) { return n > 0; });
+      populateQtySelect(qtys);
       avModalLabel.textContent = currentSectionObj.is_grouped
         ? currentSectionObj.display_name + ' (' + currentSectionObj.count + ' sections)'
         : currentSectionObj.name;
