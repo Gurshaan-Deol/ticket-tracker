@@ -60,18 +60,21 @@
   {% endfor %}
 </div>
 <div class="overflow-x-auto rounded-lg border border-gray-800 mb-8">
-  <table class="w-full text-sm table-fixed">
+  <table class="w-full text-sm">
     <thead>
-      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium cursor-pointer select-none w-36" data-sort="name">
+      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide
+                 bg-gray-900 border-b border-gray-800">
+        <th class="px-4 py-3 font-medium cursor-pointer select-none"
+            data-sort="name">
           Section <span class="sort-indicator ml-1"></span>
         </th>
-        <th class="px-4 py-3 font-medium w-24">Status</th>
-        <th class="px-4 py-3 font-medium cursor-pointer select-none w-32" data-sort="price">
+        <th class="px-4 py-3 font-medium">Status</th>
+        <th class="px-4 py-3 font-medium cursor-pointer select-none"
+            data-sort="price">
           Price <span class="sort-indicator ml-1">▲</span>
         </th>
-        <th class="px-4 py-3 font-medium w-32">Your Target</th>
-        <th class="px-4 py-3 font-medium w-20">Interval</th>
+        <th class="px-4 py-3 font-medium">Your Target</th>
+        <th class="px-4 py-3 font-medium">Interval</th>
         <th class="px-4 py-3 font-medium">Actions</th>
       </tr>
     </thead>
@@ -95,12 +98,18 @@
             Available
           </span>
         </td>
-        <td class="px-4 py-3 font-mono text-gray-200">
-          {% if l.current_price is not none %}${{ "%.2f" | format(l.current_price) }}{% else %}—{% endif %}
-          <button class="show-history-btn block mt-1 text-xs font-sans text-gray-500 hover:text-green-400 underline underline-offset-2 transition"
-                  data-listing-id="{{ l.id }}">
-            Show price history
+        <td class="px-4 py-3">
+          {% if l.current_price is not none %}
+          <button class="show-history-btn font-mono text-green-400
+                         hover:text-green-300 underline underline-offset-2
+                         transition cursor-pointer"
+                  data-listing-id="{{ l.id }}"
+                  data-price-text="${{ '%.2f' | format(l.current_price) }}">
+            ${{ "%.2f" | format(l.current_price) }}
           </button>
+          {% else %}
+          <span class="font-mono text-gray-600">—</span>
+          {% endif %}
         </td>
         <td class="px-4 py-3">
           {% if l.watches %}
@@ -222,141 +231,28 @@
 <p class="text-center text-gray-500 italic py-8">No listings are currently available.</p>
 {% endif %}
 
-{% if unavailable_listings %}
-<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-2">Previously Available</h2>
-<div class="overflow-x-auto rounded-lg border border-gray-800 mb-8">
-  <table class="w-full text-sm opacity-60">
-    <thead>
-      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
-        <th class="px-4 py-3 font-medium">Section</th>
-        <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium">Last Price</th>
-        <th class="px-4 py-3 font-medium">Last Seen</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for l in unavailable_listings %}
-      <tr class="border-b border-gray-800">
-        <td class="px-4 py-3 font-medium text-gray-500">{{ l.name }}</td>
-        <td class="px-4 py-3">
-          <span class="text-xs bg-gray-900 text-gray-500 border border-gray-700 px-2 py-0.5 rounded-full">Unavailable</span>
-        </td>
-        <td class="px-4 py-3 font-mono text-gray-500">
-          {% if l.current_price is not none %}${{ "%.2f" | format(l.current_price) }}{% else %}—{% endif %}
-        </td>
-        <td class="px-4 py-3 text-gray-500">{{ l.last_seen_at or '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if unavailable_section_data %}
+<div class="mb-6">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+    Unavailable Sections
+  </h2>
+  <div class="overflow-x-auto rounded-lg border border-gray-800 mb-8">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
+          <th class="px-4 py-3 font-medium">Section</th>
+          <th class="px-4 py-3 font-medium">Type</th>
+          <th class="px-4 py-3 font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="unavailable-tbody">
+        <!-- rendered by JS -->
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
-<!-- Watch for Unavailable Section -->
-<div class="mt-6 mb-8">
-  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
-    Watch for Unavailable Section
-  </h2>
-
-  <!-- Existing availability watches -->
-  {% if availability_watches %}
-  <div class="flex flex-col gap-2 mb-4">
-    {% for w in availability_watches %}
-    <div class="flex items-center justify-between text-sm
-                bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
-      <div class="flex items-center gap-3 flex-wrap">
-        <span class="font-medium text-gray-200">{{ w.section_name }}</span>
-        <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">
-          {{ w.quantity }}×
-        </span>
-        {% if w.target_price %}
-        <span class="text-xs text-green-400">
-          Alert if ≤ ${{ "%.2f" | format(w.target_price) }}
-        </span>
-        {% else %}
-        <span class="text-xs text-gray-500">Alert on any price</span>
-        {% endif %}
-        {% if w.last_alerted_at %}
-        <span class="text-xs text-gray-600">
-          Last alerted: {{ w.last_alerted_at }}
-        </span>
-        {% endif %}
-      </div>
-      <button class="remove-av-watch-btn text-xs bg-red-900
-                     hover:bg-red-800 text-white px-2 py-1
-                     rounded transition"
-              data-watch-id="{{ w.id }}"
-              data-event-id="{{ event.id }}">
-        Remove
-      </button>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <!-- Add new availability watch form -->
-  <div class="p-4 bg-gray-900 border border-gray-700 rounded-lg">
-    <form id="av-watch-form" class="flex flex-wrap gap-4 items-end">
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">Section</label>
-        <input list="seen-sections-list"
-               id="av-section-input"
-               name="section_name"
-               required
-               placeholder="e.g. Section 101"
-               class="bg-gray-800 border border-gray-700 rounded
-                      px-2 py-1.5 text-sm w-44
-                      focus:outline-none focus:border-green-500">
-        <datalist id="seen-sections-list">
-          {% for s in seen_sections %}
-          <option value="{{ s.name }}">
-          {% endfor %}
-        </datalist>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">Tickets</label>
-        <select name="quantity" required
-                class="bg-gray-800 border border-gray-700 rounded
-                       px-2 py-1.5 text-sm w-28
-                       focus:outline-none focus:border-green-500">
-          <option value="">Select</option>
-          {% for n in available_quantities %}
-          <option value="{{ n }}">
-            {{ n }} ticket{{ 's' if n != 1 else '' }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">Target Price (optional)</label>
-        <input type="number" name="target_price"
-               step="0.01" min="0.01"
-               placeholder="Any price"
-               class="bg-gray-800 border border-gray-700 rounded
-                      px-2 py-1.5 text-sm w-32
-                      focus:outline-none focus:border-green-500">
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">Alert cooldown (min)</label>
-        <input type="number" name="alert_cooldown_minutes"
-               min="5" value="60"
-               class="bg-gray-800 border border-gray-700 rounded
-                      px-2 py-1.5 text-sm w-24
-                      focus:outline-none focus:border-green-500">
-      </div>
-
-      <button type="submit"
-              class="bg-green-700 hover:bg-green-600 text-white
-                     px-4 py-1.5 rounded text-sm transition">
-        Watch Section
-      </button>
-    </form>
-  </div>
-</div>
 
 {% else %}
 <p class="text-center text-gray-600 py-12">
@@ -365,7 +261,40 @@
 {% endif %}
 
 
+<!-- Availability quantity modal -->
+<div id="av-qty-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/60">
+  <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-80 shadow-xl">
+    <h3 class="text-sm font-semibold text-gray-200 mb-1">Availability alerts</h3>
+    <p id="av-modal-section-label" class="text-xs text-gray-500 mb-4"></p>
+
+    <!-- Existing watches list -->
+    <div id="av-modal-watches" class="mb-4 hidden">
+      <p class="text-xs text-gray-400 mb-2">Active alerts:</p>
+      <ul id="av-modal-watch-list" class="space-y-1"></ul>
+    </div>
+
+    <!-- Add new watch -->
+    <p class="text-xs text-gray-400 mb-1">Add alert for:</p>
+    <select id="av-qty-select"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 mb-4">
+    </select>
+
+    <div class="flex gap-2 justify-end">
+      <button id="av-modal-cancel"
+              class="text-xs px-3 py-1.5 rounded border border-gray-700 text-gray-400 hover:border-gray-500">
+        Close
+      </button>
+      <button id="av-modal-confirm"
+              class="text-xs px-3 py-1.5 rounded bg-green-900 text-green-300 border border-green-700 hover:bg-green-800">
+        Add alert
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
+  const UNAVAILABLE_SECTIONS = {{ unavailable_section_data | tojson }};
+
   // ── Quantity filter pills ────────────────────────────────────────────────────
   var activeQtyFilter = 'all';
 
@@ -566,7 +495,6 @@
       var chartRow = document.getElementById('chart-row-' + id);
       var container = document.getElementById('chart-container-' + id);
 
-      // Toggle hide
       if (!chartRow.classList.contains('hidden')) {
         if (chartInstances[id]) {
           chartInstances[id].destroy();
@@ -575,11 +503,10 @@
         container.innerHTML = '';
         container.style.height = '';
         chartRow.classList.add('hidden');
-        this.textContent = 'Show price history';
+        this.textContent = this.dataset.priceText;
         return;
       }
 
-      // Fetch and render
       var origText = this.textContent;
       this.textContent = 'Loading…';
       this.disabled = true;
@@ -652,7 +579,7 @@
         }
 
         chartRow.classList.remove('hidden');
-        this.textContent = 'Hide price history';
+        this.textContent = this.dataset.priceText;
       } catch (e) {
         alert('Failed to load price history: ' + e.message);
         this.textContent = origText;
@@ -660,57 +587,180 @@
       this.disabled = false;
     });
   });
-  // ── Availability watch form ───────────────────────────────────────────────
-  var avWatchForm = document.getElementById('av-watch-form');
-  if (avWatchForm) avWatchForm.addEventListener(
-    'submit', async function (e) {
-      e.preventDefault();
-      const fd = new FormData(this);
-      try {
-        const resp = await fetch(
-          '/events/{{ event.id }}/availability-watches',
-          { method: 'POST', body: fd }
-        );
-        if (resp.ok) {
-          window.location.href = window.location.pathname +
-            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
-        } else {
-          const data = await resp.json();
-          alert('Failed: ' + (data.detail || 'unknown error'));
-        }
-      } catch (err) {
-        alert('Failed: ' + err.message);
-      }
-    }
-  );
 
-  document.querySelectorAll('.remove-av-watch-btn').forEach(
-    function (btn) {
-      btn.addEventListener('click', async function () {
-        if (!confirm('Remove this availability watch?')) return;
-        const watchId = this.dataset.watchId;
-        const eventId = this.dataset.eventId;
-        try {
-          const resp = await fetch(
-            '/events/' + eventId + '/availability-watches/' + watchId,
-            { method: 'DELETE' }
-          );
-          if (resp.ok) window.location.href = window.location.pathname +
-            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
-        } catch (err) {
-          alert('Failed: ' + err.message);
-        }
-      });
+  // ── Availability watches state ────────────────────────────────────────────
+  const sectionWatches = {};
+  {% for w in availability_watches %}
+  if (!sectionWatches["{{ w.section_name }}"]) sectionWatches["{{ w.section_name }}"] = [];
+  sectionWatches["{{ w.section_name }}"].push({ quantity: {{ w.quantity }}, watchId: {{ w.id }} });
+  {% endfor %}
+
+  function getWatchesForSection(section) {
+    return sectionWatches[section] || [];
+  }
+
+  // ── Unavailable sections table ────────────────────────────────────────────
+  function renderUnavailableSections() {
+    var tbody = document.getElementById('unavailable-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    UNAVAILABLE_SECTIONS.forEach(function (section) {
+      var watches = getWatchesForSection(section.name);
+      var hasWatches = watches.length > 0;
+
+      var btnClass = hasWatches
+        ? 'text-xs border border-green-800 text-green-400 bg-green-950 rounded px-2 py-1 av-bell-btn'
+        : 'text-xs border border-gray-700 text-gray-500 bg-gray-900 hover:border-gray-500 rounded px-2 py-1 av-bell-btn';
+
+      var watchLabels = hasWatches
+        ? '🔔 ' + watches.map(function (w) { return w.quantity + '×'; }).join(', ')
+        : '🔕 Notify me';
+
+      var typeLabel = section.is_ga
+        ? '<span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded">GA</span>'
+        : '<span class="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded">Reserved</span>';
+
+      var tr = document.createElement('tr');
+      tr.className = 'border-b border-gray-800';
+      tr.innerHTML =
+        '<td class="px-4 py-3 font-medium text-gray-400">' + section.name + '</td>' +
+        '<td class="px-4 py-3">' + typeLabel + '</td>' +
+        '<td class="px-4 py-3"><button class="' + btnClass + '" data-section="' + section.name + '">' + watchLabels + '</button></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  renderUnavailableSections();
+
+  // ── Modal helpers ─────────────────────────────────────────────────────────
+  var currentSection = null;
+  var avModal = document.getElementById('av-qty-modal');
+  var avModalLabel = document.getElementById('av-modal-section-label');
+  var avQtySelect = document.getElementById('av-qty-select');
+  var avModalCancel = document.getElementById('av-modal-cancel');
+  var avModalConfirm = document.getElementById('av-modal-confirm');
+
+  function populateQtySelect(seenQuantities) {
+    avQtySelect.innerHTML = '';
+    var qtys = seenQuantities.length > 0 ? seenQuantities : [1, 2, 3, 4, 5, 6];
+    qtys.forEach(function (qty) {
+      var opt = document.createElement('option');
+      opt.value = qty;
+      opt.textContent = qty + (qty === 1 ? ' ticket' : ' tickets');
+      avQtySelect.appendChild(opt);
+    });
+  }
+
+  function renderModalWatches(section) {
+    var watches = getWatchesForSection(section);
+    var container = document.getElementById('av-modal-watches');
+    var list = document.getElementById('av-modal-watch-list');
+
+    if (watches.length === 0) {
+      container.classList.add('hidden');
+      list.innerHTML = '';
+      return;
     }
-  );
+
+    container.classList.remove('hidden');
+    list.innerHTML = '';
+
+    watches.forEach(function (w) {
+      var li = document.createElement('li');
+      li.className = 'flex items-center justify-between text-xs text-gray-300 bg-gray-800 rounded px-2 py-1';
+      li.innerHTML =
+        '<span>' + w.quantity + ' ticket' + (w.quantity > 1 ? 's' : '') + '</span>' +
+        '<button class="text-red-500 hover:text-red-400 remove-watch-inline"' +
+        ' data-watch-id="' + w.watchId + '" data-section="' + section + '">Remove</button>';
+      list.appendChild(li);
+    });
+  }
+
+  // Bell click — delegate on tbody
+  var unavailTbody = document.getElementById('unavailable-tbody');
+  if (unavailTbody) {
+    unavailTbody.addEventListener('click', function (e) {
+      var btn = e.target.closest('.av-bell-btn');
+      if (!btn) return;
+      currentSection = btn.dataset.section;
+      var sectionObj = UNAVAILABLE_SECTIONS.find(function (s) { return s.name === currentSection; });
+      populateQtySelect(sectionObj ? sectionObj.seen_quantities : []);
+      avModalLabel.textContent = currentSection;
+      renderModalWatches(currentSection);
+      avModal.classList.remove('hidden');
+    });
+  }
+
+  // Remove watch from modal
+  document.getElementById('av-modal-watch-list').addEventListener('click', async function (e) {
+    var removeBtn = e.target.closest('.remove-watch-inline');
+    if (!removeBtn) return;
+    var watchId = removeBtn.dataset.watchId;
+    var section = removeBtn.dataset.section;
+    try {
+      var resp = await fetch(
+        '/events/{{ event.id }}/availability-watches/' + watchId,
+        { method: 'DELETE' }
+      );
+      if (resp.ok) {
+        sectionWatches[section] = (sectionWatches[section] || []).filter(function (w) {
+          return String(w.watchId) !== String(watchId);
+        });
+        renderModalWatches(section);
+        renderUnavailableSections();
+      } else {
+        alert('Failed to remove watch.');
+      }
+    } catch (err) {
+      alert('Failed to remove watch.');
+    }
+  });
+
+  avModalCancel.addEventListener('click', function () {
+    avModal.classList.add('hidden');
+  });
+
+  avModalConfirm.addEventListener('click', async function () {
+    var section = currentSection;
+    var quantity = parseInt(avQtySelect.value, 10);
+
+    var existing = getWatchesForSection(section);
+    if (existing.some(function (w) { return w.quantity === quantity; })) {
+      alert('You already have an alert for ' + quantity + '× tickets in this section.');
+      return;
+    }
+
+    avModalConfirm.disabled = true;
+    try {
+      var fd = new FormData();
+      fd.append('section_name', section);
+      fd.append('quantity', quantity);
+      var resp = await fetch(
+        '/events/{{ event.id }}/availability-watches',
+        { method: 'POST', body: fd }
+      );
+      if (resp.ok) {
+        var data = await resp.json();
+        if (!sectionWatches[section]) sectionWatches[section] = [];
+        sectionWatches[section].push({ quantity: quantity, watchId: data.watch_id });
+        renderModalWatches(section);
+        renderUnavailableSections();
+      } else {
+        alert('Failed to set watch — please try again.');
+      }
+    } catch (err) {
+      alert('Failed to set watch — please try again.');
+    }
+    avModalConfirm.disabled = false;
+  });
+
   // ── Restore quantity filter from URL hash on page load ───────────────────
   (function () {
     var hash = window.location.hash;
     if (!hash || !hash.startsWith('#qty-')) return;
     var qty = hash.replace('#qty-', '');
-    var btn = document.querySelector(
-      '.qty-filter-btn[data-qty="' + qty + '"]'
-    );
+    var btn = document.querySelector('.qty-filter-btn[data-qty="' + qty + '"]');
     if (btn) btn.click();
   })();
 </script>

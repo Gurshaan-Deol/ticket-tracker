@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import scrape_event_sync as _scrape_sync
+from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
+from app.scraper.ticketmaster import fetch_venue_sections, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import (
     remove_availability_job,
     remove_watch_job,
@@ -357,15 +357,55 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         for w in av_watches
     ]
 
-    seen_sections_result = await db.execute(
-        select(Listing.name, Listing.quantity)
-        .where(Listing.event_id == event_id)
-        .where(Listing.is_available == False)
-        .order_by(Listing.name, Listing.quantity)
+    # All venue sections for this event (from manifest)
+    sections_result = await db.execute(
+        select(VenueSection)
+        .where(VenueSection.event_id == event_id)
+        .order_by(VenueSection.name)
     )
-    seen_sections = [
-        {"name": row[0], "quantity": row[1]}
-        for row in seen_sections_result.all()
+    all_sections = sections_result.scalars().all()
+
+    # Currently available listing names (case-insensitive)
+    available_result = await db.execute(
+        select(Listing.name)
+        .where(Listing.event_id == event_id, Listing.is_available == True)
+        .distinct()
+    )
+    available_names = {row[0].strip().lower() for row in available_result.all()}
+
+    # Unavailable = in manifest but not currently available
+    unavailable_sections = [
+        s for s in all_sections
+        if s.name.strip().lower() not in available_names
+    ]
+
+    # Historically seen quantities per section name from Listing table
+    qty_result = await db.execute(
+        select(Listing.name, Listing.quantity)
+        .where(
+            Listing.event_id == event_id,
+            Listing.quantity.isnot(None),
+        )
+        .distinct()
+    )
+    seen_quantities: dict[str, list[int]] = {}
+    for row in qty_result.all():
+        key = row[0].strip().lower()
+        if key not in seen_quantities:
+            seen_quantities[key] = []
+        if row[1] not in seen_quantities[key]:
+            seen_quantities[key].append(row[1])
+    for key in seen_quantities:
+        seen_quantities[key].sort()
+
+    # JSON-serialisable list for the template
+    unavailable_section_data = [
+        {
+            "name": s.name,
+            "is_ga": s.is_ga,
+            "seen_quantities": seen_quantities.get(s.name.strip().lower(), []),
+        }
+        for s in unavailable_sections
     ]
 
     available_quantities = _parse_quantities(event_obj.available_quantities)
@@ -384,7 +424,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         "snapshot_chart_data": snapshot_chart_data,
         "ai_enabled": bool(get_settings().ai_api_key),
         "availability_watches": av_watches_data,
-        "seen_sections": seen_sections,
+        "unavailable_section_data": unavailable_section_data,
     })
 
 
@@ -465,6 +505,26 @@ async def add_event(
             ))
 
     await db.commit()
+
+    # Populate venue sections from manifest (best-effort — does not block event creation)
+    tm_event_id = url.rstrip("/").split("/")[-1]
+    try:
+        sections = await fetch_venue_sections(tm_event_id)
+        if sections:
+            for s in sections:
+                db.add(VenueSection(
+                    event_id=event.id,
+                    name=s["name"],
+                    is_ga=s["is_ga"],
+                    num_seats=s["num_seats"],
+                ))
+            await db.commit()
+            logger.info("Populated %d venue sections for event %d", len(sections), event.id)
+        else:
+            logger.warning("No venue sections returned from manifest for event %d (TM id: %s)", event.id, tm_event_id)
+    except Exception:
+        logger.warning("Failed to populate venue sections for event %d", event.id, exc_info=True)
+
     return RedirectResponse(url=f"/events/{event.id}", status_code=303)
 
 

@@ -23,6 +23,9 @@ class Event(Base):
     availability_watches: Mapped[list["AvailabilityWatch"]] = relationship(
         "AvailabilityWatch", back_populates="event", cascade="all, delete-orphan"
     )
+    venue_sections: Mapped[list["VenueSection"]] = relationship(
+        "VenueSection", back_populates="event", cascade="all, delete-orphan"
+    )
 
 
 class Listing(Base):
@@ -42,6 +45,21 @@ class Listing(Base):
     watches: Mapped[list["UserWatch"]] = relationship("UserWatch", back_populates="listing")
     snapshots: Mapped[list["PriceSnapshot"]] = relationship("PriceSnapshot", back_populates="listing")
     alert_logs: Mapped[list["AlertLog"]] = relationship("AlertLog", back_populates="listing")
+
+
+class VenueSection(Base):
+    __tablename__ = "venue_sections"
+    __table_args__ = (
+        UniqueConstraint("event_id", "name", name="uq_venue_section_event_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    is_ga: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    num_seats: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    event: Mapped["Event"] = relationship("Event", back_populates="venue_sections")
 
 
 class UserWatch(Base):

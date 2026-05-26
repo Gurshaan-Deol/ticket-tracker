@@ -5,6 +5,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from bs4 import BeautifulSoup, Tag
+import httpx
 
 from app.scraper.browser import managed_browser_context
 
@@ -52,6 +53,40 @@ def scrape_event_sync(url: str) -> tuple[list[ListingResult], list[int]]:
 
     future = _executor.submit(_run)
     return future.result(timeout=300)
+
+
+# ---------------------------------------------------------------------------
+# Manifest fetcher
+# ---------------------------------------------------------------------------
+
+
+async def fetch_venue_sections(event_id: str) -> list[dict]:
+    """
+    Fetches all venue sections from the Ticketmaster manifest API.
+    Returns list of dicts with keys: name, is_ga, num_seats.
+    Returns empty list on any failure.
+    """
+    url = f"https://pubapi.ticketmaster.ca/sdk/static/manifest/v1/{event_id}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            logger.warning("Manifest API returned %d for event %s", resp.status_code, event_id)
+            return []
+        data = resp.json()
+        sections = data.get("manifestSections", [])
+        return [
+            {
+                "name": s["name"],
+                "is_ga": bool(s.get("ga", False)),
+                "num_seats": s.get("numSeats"),
+            }
+            for s in sections
+            if s.get("name")
+        ]
+    except Exception:
+        logger.warning("fetch_venue_sections failed for event %s", event_id, exc_info=True)
+        return []
 
 
 # ---------------------------------------------------------------------------
