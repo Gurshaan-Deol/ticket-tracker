@@ -379,8 +379,12 @@
       const resp = await fetch('/events/{{ event.id }}/scrape');
       const data = await resp.json();
       if (resp.ok) {
-        window.location.href = window.location.pathname +
-          (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
+        window.stopScrapeOverlay();
+        if (activeQtyFilter !== 'all') {
+          window.location.href = window.location.pathname + '?qty=' + activeQtyFilter;
+        } else {
+          window.location.reload();
+        }
       } else {
         window.stopScrapeOverlay();
         alert('Scrape failed: ' + (data.error || 'unknown error'));
@@ -861,13 +865,15 @@
     avModalConfirm.disabled = false;
   });
 
-  // ── Restore quantity filter from URL hash on page load ───────────────────
+  // ── Restore quantity filter from URL on page load ────────────────────────
   (function () {
-    var hash = window.location.hash;
-    if (!hash || !hash.startsWith('#qty-')) return;
-    var qty = hash.replace('#qty-', '');
-    var btn = document.querySelector('.qty-filter-btn[data-qty="' + qty + '"]');
-    if (btn) btn.click();
+    var params = new URLSearchParams(window.location.search);
+    var qtyParam = params.get('qty');
+    if (qtyParam) {
+      var matchingBtn = document.querySelector('.qty-filter-btn[data-qty="' + qtyParam + '"]');
+      if (matchingBtn) matchingBtn.click();
+      history.replaceState(null, '', window.location.pathname);
+    }
   })();
 </script>
 
