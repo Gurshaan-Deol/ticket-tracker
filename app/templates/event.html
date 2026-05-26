@@ -85,7 +85,11 @@
       <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition"
           data-name="{{ l.name | lower }}"
           data-price="{{ l.current_price if l.current_price is not none else 999999 }}"
-          data-qty-prices='{{ l.quantity_price_map | tojson }}'>
+          data-qty-prices='{{ l.quantity_price_map | tojson }}'
+          data-constituent-names='{{ l.constituent_section_names | tojson }}'
+          data-seen-quantities='{{ l.quantity_price_map.keys() | list | tojson }}'
+          data-is-grouped="true"
+          data-display-name="{{ l.name }}">
         <td class="px-4 py-3 font-medium truncate">
           {{ l.name }}
           <span class="ml-1 text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
@@ -105,7 +109,11 @@
         </td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
-        <td class="px-4 py-3"><span class="text-gray-500 text-xs italic">Set watch per section below</span></td>
+        <td class="px-4 py-3">
+          <button class="avail-grouped-bell-btn text-xs border border-gray-700 text-gray-500 bg-gray-900 hover:border-gray-500 rounded px-2 py-1">
+            🔕 Notify me
+          </button>
+        </td>
       </tr>
       {% else %}
       <!-- Main listing row -->
@@ -397,6 +405,30 @@
       this.textContent = 'Scrape Now';
       this.disabled = false;
     }
+  });
+
+  // ── Available grouped GA bell button ────────────────────────────────────────
+  document.querySelectorAll('.avail-grouped-bell-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tr = this.closest('tr');
+      var constituentNames = JSON.parse(tr.dataset.constituentNames);
+      var seenQtys = JSON.parse(tr.dataset.seenQuantities).map(Number);
+      var displayName = tr.dataset.displayName;
+
+      currentSectionObj = {
+        is_grouped: true,
+        display_name: displayName,
+        name: displayName,
+        section_names: constituentNames,
+        count: constituentNames.length,
+        seen_quantities: seenQtys,
+      };
+
+      populateQtySelect(seenQtys);
+      avModalLabel.textContent = displayName + ' (' + constituentNames.length + ' sections)';
+      renderModalWatches();
+      avModal.classList.remove('hidden');
+    });
   });
 
   // ── Set Watch form toggle ────────────────────────────────────────────────────
