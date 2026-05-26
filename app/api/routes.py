@@ -78,6 +78,20 @@ def _parse_url_slug(url: str) -> tuple[str, str | None]:
     return name or "Unknown Event", date_str
 
 
+GA_GROUP_KEYWORDS = ["LAWN", "GA", "GENERAL ADMISSION"]
+
+
+def _matches_ga_keyword(name: str, keyword: str) -> bool:
+    n = name.strip().upper()
+    k = keyword.upper()
+    if n == k:
+        return True
+    if n.startswith(k) and len(n) > len(k):
+        next_char = n[len(k)]
+        return next_char == " " or next_char.isdigit()
+    return False
+
+
 async def _reconcile_listings(
     db: AsyncSession, event_id: int, scraped_results: list
 ) -> None:
@@ -311,6 +325,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "name": listing.name,
                 "quantity": listing.quantity,
                 "is_available": listing.is_available,
+                "is_grouped": False,
                 "last_seen_at": listing.last_seen_at,
                 "current_price": snapshots[-1].price,
                 "watches": [
@@ -336,6 +351,37 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
 
     logger.info(f"listings_data: {len(listings_data)} total, "
                 f"{sum(1 for l in listings_data if not l['is_available'])} unavailable")
+
+    _avail_grouping_used: set = set()
+    _grouped_avail: list[dict] = []
+    for keyword in GA_GROUP_KEYWORDS:
+        matching = [l for l in listings_data if l["is_available"] and _matches_ga_keyword(l["name"], keyword)]
+        if len(matching) >= 2:
+            qty_price_map: dict[str, float] = {}
+            for l in matching:
+                if l["current_price"] is not None and l["quantity"] is not None:
+                    k = str(l["quantity"])
+                    if k not in qty_price_map or l["current_price"] < qty_price_map[k]:
+                        qty_price_map[k] = l["current_price"]
+            lowest = min(qty_price_map.values(), default=None)
+            _grouped_avail.append({
+                "id": None,
+                "name": keyword.title(),
+                "quantity": None,
+                "is_available": True,
+                "is_grouped": True,
+                "current_price": lowest,
+                "quantity_price_map": qty_price_map,
+                "constituent_section_names": [l["name"] for l in matching],
+                "watches": [],
+                "snapshots": [],
+                "snapshot_count": 0,
+                "last_seen_at": None,
+            })
+            for l in matching:
+                _avail_grouping_used.add(l["id"])
+    listings_data = _grouped_avail + [l for l in listings_data if l.get("id") not in _avail_grouping_used]
+    already_grouped_as_available = {row["name"].upper() for row in _grouped_avail}
 
     av_watches_result = await db.execute(
         select(AvailabilityWatch)
@@ -373,12 +419,32 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     )
     available_names = {row[0].strip().lower() for row in available_result.all()}
 
-    # Unavailable = in manifest but not currently available
+    # Active listings keyed by (name, qty_str) — needed before unavailable_sections
+    avail_result = await db.execute(
+        select(Listing.name, Listing.quantity)
+        .where(Listing.event_id == event_id, Listing.is_available == True)
+    )
+    available_name_qty = {
+        (row[0].strip().lower(), str(row[1]))
+        for row in avail_result.all()
+    }
+    all_active_qtys = sorted({pair[1] for pair in available_name_qty})
+
+    # A section is unavailable if it lacks an active listing for AT LEAST ONE
+    # active quantity — not just absent entirely
+    def is_section_unavailable(s):
+        key = s.name.strip().lower()
+        if key not in available_names:
+            return True
+        return any(
+            (key, q) not in available_name_qty
+            for q in all_active_qtys
+        )
+
     unavailable_sections = [
         s for s in all_sections
-        if s.name.strip().lower() not in available_names
+        if is_section_unavailable(s)
     ]
-
     # Historically seen quantities per section name from Listing table
     qty_result = await db.execute(
         select(Listing.name, Listing.quantity)
@@ -398,15 +464,75 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     for key in seen_quantities:
         seen_quantities[key].sort()
 
-    # JSON-serialisable list for the template
-    unavailable_section_data = [
-        {
+    # Group GA sections by keyword (2+ matches → single grouped row)
+    final_sections: list[dict] = []
+    used_ids: set[int] = set()
+
+    for keyword in GA_GROUP_KEYWORDS:
+        if keyword.upper() in already_grouped_as_available:
+            continue
+        matching = [s for s in unavailable_sections if _matches_ga_keyword(s.name, keyword)]
+        if len(matching) >= 2:
+            agg_qtys = sorted({
+                qty
+                for s in matching
+                for qty in seen_quantities.get(s.name.strip().lower(), [])
+            })
+            agg_seen_str = [str(q) for q in agg_qtys]
+            all_relevant_qtys = sorted(
+                set(agg_seen_str) | set(all_active_qtys),
+                key=lambda x: int(x)
+            )
+            unavail_qtys = [
+                q for q in all_relevant_qtys
+                if not any(
+                    (s.name.strip().lower(), q) in available_name_qty
+                    for s in matching
+                )
+            ]
+            if not unavail_qtys:
+                unavail_qtys = ["1", "2", "3", "4", "5", "6"]
+            final_sections.append({
+                "name": keyword.title(),
+                "display_name": keyword.title(),
+                "section_names": [s.name for s in matching],
+                "is_ga": True,
+                "is_grouped": True,
+                "count": len(matching),
+                "seen_quantities": agg_qtys,
+                "unavailable_quantities": unavail_qtys,
+            })
+            for s in matching:
+                used_ids.add(id(s))
+
+    for s in unavailable_sections:
+        if id(s) in used_ids:
+            continue
+        if any(_matches_ga_keyword(s.name, kw) for kw in GA_GROUP_KEYWORDS
+               if kw.upper() in already_grouped_as_available):
+            continue
+        section_key = s.name.strip().lower()
+        raw_seen = seen_quantities.get(section_key, [])
+        seen_qtys_str = [str(q) for q in raw_seen]
+        all_relevant_qtys = sorted(
+            set(seen_qtys_str) | set(all_active_qtys),
+            key=lambda x: int(x)
+        )
+        unavail_qtys = [
+            q for q in all_relevant_qtys
+            if (section_key, q) not in available_name_qty
+        ]
+        if not unavail_qtys:
+            unavail_qtys = ["1", "2", "3", "4", "5", "6"]
+        final_sections.append({
             "name": s.name,
             "is_ga": s.is_ga,
-            "seen_quantities": seen_quantities.get(s.name.strip().lower(), []),
-        }
-        for s in unavailable_sections
-    ]
+            "is_grouped": False,
+            "seen_quantities": seen_quantities.get(section_key, []),
+            "unavailable_quantities": unavail_qtys,
+        })
+
+    unavailable_section_data = final_sections
 
     available_quantities = _parse_quantities(event_obj.available_quantities)
     return templates.TemplateResponse(request, "event.html", {
