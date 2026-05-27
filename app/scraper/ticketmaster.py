@@ -16,6 +16,12 @@ class EventEndedException(Exception):
     """Raised when Ticketmaster indicates the event has passed."""
     pass
 
+
+class SoldOutException(Exception):
+    """Raised when the event is live/future but has no resale inventory
+    and TM is showing the sold-out holding page."""
+    pass
+
 PRICE_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
 
 # Child selectors used to pull a listing name from a container element.
@@ -110,7 +116,7 @@ async def scrape_event(url: str) -> tuple[list[ListingResult], list[int]]:
             len(results), available_quantities, url,
         )
         return results, available_quantities
-    except EventEndedException:
+    except (EventEndedException, SoldOutException):
         raise  # already logged in _check_event_ended; let callers handle it
     except Exception:
         logger.exception("Scrape failed for %s", url)
@@ -199,17 +205,27 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int
 
 
 async def _check_event_ended(page, url: str) -> None:
-    """Raise EventEndedException if Ticketmaster signals the event has passed."""
-    # Fast path: check for the specific DOM element TM renders on ended events.
-    ended_el = await page.query_selector('[data-bdd="canceled-event-header-title"]')
-    if ended_el is not None:
-        logger.info("Ended event detected (DOM element) for URL: %s", url)
+    """Raise EventEndedException if event has passed, SoldOutException if sold out.
+
+    TM uses the same [data-bdd="canceled-event-header-title"] element for both
+    states — the text content is what distinguishes them.  The old phrase check
+    ("ticket sales have stopped") was removed because that string appears in TM's
+    i18n JSON bundle on every page and is not a reliable signal.
+    """
+    title_el = await page.query_selector('[data-bdd="canceled-event-header-title"]')
+    if title_el is not None:
+        text = (await title_el.text_content() or "").strip()
+        if "sold out" in text.lower():
+            logger.info("Sold-out event detected for URL: %s", url)
+            raise SoldOutException(f"Event is sold out with no resale listings: {url}")
+        logger.info("Ended event detected for URL: %s", url)
         raise EventEndedException(f"Event has ended: {url}")
-    # Fallback: check for the canonical ended-event phrase in the raw HTML.
-    html = await page.content()
-    if "ticket sales have stopped" in html:
-        logger.info("Ended event detected (phrase match) for URL: %s", url)
-        raise EventEndedException(f"Event has ended: {url}")
+
+    # Fallback: outer wrapper present but inner title element absent.
+    sold_out_el = await page.query_selector('[class*="canceled-event__header-wrapper"]')
+    if sold_out_el is not None:
+        logger.info("Sold-out event detected (wrapper fallback) for URL: %s", url)
+        raise SoldOutException(f"Event is sold out with no resale listings: {url}")
 
 
 async def _accept_cookies(page) -> None:

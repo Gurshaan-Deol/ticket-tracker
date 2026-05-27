@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
-from app.scraper.ticketmaster import EventEndedException, fetch_venue_sections, scrape_event_sync as _scrape_sync
+from app.scraper.ticketmaster import EventEndedException, SoldOutException, fetch_venue_sections, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import (
     _cancel_all_jobs_for_event,
     remove_availability_job,
@@ -573,6 +573,7 @@ async def add_event(
     if existing_result.scalar_one_or_none():
         return RedirectResponse(url="/", status_code=303)
 
+    is_sold_out = False
     try:
         loop = asyncio.get_event_loop()
         # quantity=None → unfiltered scrape; discovers all listings and available quantities
@@ -584,6 +585,11 @@ async def add_event(
             status_code=400,
             content={"error": "This event has already ended. Ticketmaster is no longer showing tickets for it."},
         )
+    except SoldOutException:
+        # Event is live/future but the resale market is empty right now.
+        # Save the event anyway so we can monitor it and alert when listings first appear.
+        is_sold_out = True
+        scraped_results, available_quantities = [], []
     except Exception as e:
         import traceback
         logger.error(f"Add event failed: {e}\n{traceback.format_exc()}")
@@ -592,8 +598,8 @@ async def add_event(
             content={"error": f"Scrape failed: {type(e).__name__}: {e}"}
         )
 
-    if not scraped_results:
-        return JSONResponse(status_code=400, content={"error": "No listings found at that URL"})
+    if not scraped_results and not is_sold_out:
+        return JSONResponse(status_code=400, content={"error": "No listings found at that URL. The page may have failed to load — please try again."})
 
     name, event_date = _parse_url_slug(url)
     now = datetime.now(timezone.utc)
@@ -611,32 +617,33 @@ async def add_event(
     db.add(event)
     await db.flush()
 
-    listing_map: dict[tuple[str, int | None], int] = {}
-    for r in scraped_results:
-        db.add(Listing(
-            event_id=event.id,
-            name=r.name.strip(),
-            quantity=r.quantity,
-            is_available=True,
-            last_seen_at=now,
-        ))
-
-    await db.flush()
-
-    saved_listings_result = await db.execute(
-        select(Listing).where(Listing.event_id == event.id)
-    )
-    for l in saved_listings_result.scalars().all():
-        listing_map[(l.name.strip().lower(), l.quantity)] = l.id
-
-    for r in scraped_results:
-        lid = listing_map.get((r.name.strip().lower(), r.quantity))
-        if lid and r.min_price > 0:
-            db.add(PriceSnapshot(
-                listing_id=lid,
-                price=r.min_price,
-                scraped_at=now,
+    if scraped_results:
+        listing_map: dict[tuple[str, int | None], int] = {}
+        for r in scraped_results:
+            db.add(Listing(
+                event_id=event.id,
+                name=r.name.strip(),
+                quantity=r.quantity,
+                is_available=True,
+                last_seen_at=now,
             ))
+
+        await db.flush()
+
+        saved_listings_result = await db.execute(
+            select(Listing).where(Listing.event_id == event.id)
+        )
+        for l in saved_listings_result.scalars().all():
+            listing_map[(l.name.strip().lower(), l.quantity)] = l.id
+
+        for r in scraped_results:
+            lid = listing_map.get((r.name.strip().lower(), r.quantity))
+            if lid and r.min_price > 0:
+                db.add(PriceSnapshot(
+                    listing_id=lid,
+                    price=r.min_price,
+                    scraped_at=now,
+                ))
 
     await db.commit()
 
@@ -747,6 +754,9 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await _cancel_all_jobs_for_event(event_id)
         return JSONResponse({"ended": True})
+    except SoldOutException:
+        logger.info("Event %d is still sold out — no resale listings found.", event_id)
+        return JSONResponse({"listings_found": 0, "listings": []})
     except Exception as e:
         logger.error("Manual scrape failed for event %d: %s", event_id, e)
         return JSONResponse(status_code=500, content={"error": f"Scrape failed: {e}"})
