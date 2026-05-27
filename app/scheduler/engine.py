@@ -15,6 +15,39 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _same_date(a: str, b: str) -> bool:
+    """Return True if two M-D-YYYY (or YYYY-MM-DD) strings represent the same calendar date."""
+    try:
+        def _parts(s: str):
+            p = s.split("-")
+            if len(p[0]) == 4:
+                return int(p[0]), int(p[1]), int(p[2])
+            return int(p[2]), int(p[0]), int(p[1])
+        return _parts(a) == _parts(b)
+    except Exception:
+        return a.strip() == b.strip()
+
+
+async def _check_and_update_date(event: Event, scraped_date: str | None, now: datetime) -> None:
+    """Compare scraped date with stored date; mutate event and fire alert if changed."""
+    if not scraped_date:
+        return
+    if not event.event_date:
+        event.event_date = scraped_date
+        return
+    if _same_date(event.event_date, scraped_date):
+        return
+    old_date = event.event_date
+    event.previous_event_date = old_date
+    event.event_date = scraped_date
+    event.date_changed_at = now
+    logger.info("Date change detected for event %d: %s → %s", event.id, old_date, scraped_date)
+    try:
+        await fire_date_change_alert(event, old_date, scraped_date)
+    except Exception:
+        logger.error("Date change alert failed for event %d", event.id, exc_info=True)
+
+
 async def start_scheduler() -> None:
     scheduler.start()
     async with AsyncSessionLocal() as session:
@@ -128,7 +161,7 @@ async def run_availability_check(event_id: int) -> None:
                 return
 
             try:
-                scraped_results, _ = await asyncio.get_running_loop().run_in_executor(
+                scraped_results, _, scraped_date = await asyncio.get_running_loop().run_in_executor(
                     None, scrape_event_sync, event.ticketmaster_url
                 )
             except EventEndedException:
@@ -142,14 +175,15 @@ async def run_availability_check(event_id: int) -> None:
                 await _cancel_all_jobs_for_event(event_id)
                 return
 
+            now = datetime.now(timezone.utc)
+            await _check_and_update_date(event, scraped_date, now)
+
             scraped_map: dict[tuple[str, int], float] = {}
             for r in scraped_results:
                 if r.quantity is not None:
                     key = (r.name.strip().lower(), r.quantity)
                     if key not in scraped_map or r.min_price < scraped_map[key]:
                         scraped_map[key] = r.min_price
-
-            now = datetime.now(timezone.utc)
 
             for watch in watches:
                 key = (watch.section_name.strip().lower(), watch.quantity)
@@ -223,6 +257,20 @@ async def fire_availability_alert(
     )
 
 
+async def fire_date_change_alert(event: Event, old_date: str, new_date: str) -> None:
+    from app.notifier import get_notifier_manager
+    manager = get_notifier_manager()
+    message = (
+        f"📅 <b>Event Date Changed</b>\n\n"
+        f"<b>Event:</b> {event.name}\n"
+        f"<b>Previous date:</b> {old_date}\n"
+        f"<b>New date:</b> {new_date}\n\n"
+        f"<a href='{event.ticketmaster_url}'>View on Ticketmaster</a>"
+    )
+    await manager.send_all(message)
+    logger.info("Date change alert sent for event %d: %s → %s", event.id, old_date, new_date)
+
+
 async def run_watch_job(watch_id: int) -> None:
     logger.info("run_watch_job started")
     session = AsyncSessionLocal()
@@ -255,7 +303,7 @@ async def run_watch_job(watch_id: int) -> None:
         # Step 5: Scrape
         try:
             loop = asyncio.get_event_loop()
-            scraped_results, _ = await loop.run_in_executor(
+            scraped_results, _, scraped_date = await loop.run_in_executor(
                 None, scrape_event_sync, event.ticketmaster_url
             )
         except EventEndedException:
@@ -273,6 +321,7 @@ async def run_watch_job(watch_id: int) -> None:
             return
 
         now = datetime.now(timezone.utc)
+        await _check_and_update_date(event, scraped_date, now)
 
         # Step 6: Find the matching listing by name and quantity
         matched_result = None

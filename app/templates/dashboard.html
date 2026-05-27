@@ -88,6 +88,15 @@
         {% elif not e.is_active %}
         <span data-paused-badge class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
         {% endif %}
+        {% if not e.is_ended and e.date_changed_at %}
+        <span class="date-changed-badge text-xs bg-orange-950 text-orange-400 border border-orange-900 px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+              title="Was: {{ e.previous_event_date }}">
+          Date Changed
+          <button class="ack-date-change-btn hover:text-orange-200 leading-none"
+                  data-event-id="{{ e.id }}"
+                  aria-label="Dismiss">✕</button>
+        </span>
+        {% endif %}
         {% if not e.is_ended and e.setup_complete and e.target_price is not none %}
         <span class="text-xs px-2 py-0.5 rounded-full border {{ badge_cls }}">{{ e.status }}</span>
         {% endif %}
@@ -311,6 +320,20 @@
       });
     });
   }
+
+  // Acknowledge date change
+  document.querySelectorAll('.ack-date-change-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function (e) {
+      e.stopPropagation();
+      const eventId = this.dataset.eventId;
+      try {
+        await fetch('/events/' + eventId + '/acknowledge-date-change', { method: 'POST' });
+        this.closest('.date-changed-badge').remove();
+      } catch (err) {
+        alert('Failed to dismiss: ' + err.message);
+      }
+    });
+  });
 
   // Apply default sort on load
   sortCards();

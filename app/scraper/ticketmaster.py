@@ -49,10 +49,11 @@ class ListingResult:
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
-def scrape_event_sync(url: str) -> tuple[list[ListingResult], list[int]]:
+def scrape_event_sync(url: str) -> tuple[list[ListingResult], list[int], str | None]:
     """
     Run scrape_event in a dedicated thread with its own event loop.
-    Returns (listings, available_quantities). Always unfiltered — one result per section+quantity.
+    Returns (listings, available_quantities, event_date). Always unfiltered — one result per section+quantity.
+    event_date is in M-D-YYYY format or None if extraction failed.
     """
     def _run():
         loop = asyncio.new_event_loop()
@@ -105,17 +106,17 @@ async def fetch_venue_sections(event_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def scrape_event(url: str) -> tuple[list[ListingResult], list[int]]:
-    """Returns (listings, available_quantities). Always unfiltered — one result per section+quantity."""
+async def scrape_event(url: str) -> tuple[list[ListingResult], list[int], str | None]:
+    """Returns (listings, available_quantities, event_date). Always unfiltered — one result per section+quantity."""
     logger.info("Scrape started — %s", url)
     try:
         async with managed_browser_context() as ctx:
-            results, available_quantities = await _scrape_page(ctx, url)
+            results, available_quantities, event_date = await _scrape_page(ctx, url)
         logger.info(
-            "Scrape finished — %d listing(s), available qty=%s for %s",
-            len(results), available_quantities, url,
+            "Scrape finished — %d listing(s), available qty=%s, date=%s for %s",
+            len(results), available_quantities, event_date, url,
         )
-        return results, available_quantities
+        return results, available_quantities, event_date
     except (EventEndedException, SoldOutException):
         raise  # already logged in _check_event_ended; let callers handle it
     except Exception:
@@ -128,7 +129,7 @@ async def scrape_event(url: str) -> tuple[list[ListingResult], list[int]]:
 # ---------------------------------------------------------------------------
 
 
-async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int]]:
+async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int], str | None]:
     page = await context.new_page()
     pending_responses = []
 
@@ -158,6 +159,9 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int
         # Exit immediately if the event has already taken place — before the
         # 20 s offers-API wait so we never waste time on a dead page.
         await _check_event_ended(page, url)
+
+        # Extract event date from JSON-LD (fast — no extra network request).
+        event_date = await _extract_event_date(page)
 
         # Poll until the offers API response arrives, then close immediately.
         max_wait_ms = 20_000
@@ -194,14 +198,52 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int
         results = _extract_from_api_responses(captured_data)
         if results:
             logger.debug("API approach yielded %d result(s)", len(results))
-            return results, available_quantities
+            return results, available_quantities, event_date
 
         # Approach B — DOM extraction fallback
         logger.debug("API approach empty, falling back to DOM extraction")
         results = await _extract_listings(page)
-        return results, available_quantities
+        return results, available_quantities, event_date
     finally:
         await page.close()
+
+
+def _parse_scraped_date(raw: str) -> str | None:
+    """Convert ISO date string (e.g. '2026-05-27T19:00:00-05:00') to M-D-YYYY storage format."""
+    try:
+        date_part = raw[:10]  # "2026-05-27"
+        y, m, d = date_part.split("-")
+        return f"{int(m)}-{int(d)}-{y}"
+    except Exception:
+        return None
+
+
+async def _extract_event_date(page) -> str | None:
+    """Extract event start date from JSON-LD on the page. Returns M-D-YYYY or None."""
+    try:
+        raw = await page.evaluate("""() => {
+            const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+            for (const script of scripts) {
+                try {
+                    const data = JSON.parse(script.textContent);
+                    if (data && data.startDate) return data.startDate;
+                    if (Array.isArray(data)) {
+                        for (const item of data) {
+                            if (item && item.startDate) return item.startDate;
+                        }
+                    }
+                } catch(e) {}
+            }
+            return null;
+        }""")
+        if raw:
+            parsed = _parse_scraped_date(str(raw))
+            if parsed:
+                logger.debug("Extracted event date from JSON-LD: %s → %s", raw, parsed)
+            return parsed
+    except Exception:
+        logger.debug("_extract_event_date failed", exc_info=True)
+    return None
 
 
 async def _check_event_ended(page, url: str) -> None:

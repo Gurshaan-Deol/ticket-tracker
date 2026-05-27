@@ -20,6 +20,8 @@ class Event(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_ended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    previous_event_date: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    date_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
     availability_watches: Mapped[list["AvailabilityWatch"]] = relationship(

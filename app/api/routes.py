@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import delete, desc, select
+from sqlalchemy import and_, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -177,6 +177,27 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
                     scraped_at = scraped_at.replace(tzinfo=timezone.utc)
                 last_checked_mins_ago = max(0, int((now_utc - scraped_at).total_seconds() / 60))
 
+            # Lowest price across all available listings (latest snapshot per listing)
+            _latest_subq = (
+                select(
+                    PriceSnapshot.listing_id,
+                    func.max(PriceSnapshot.scraped_at).label("latest_at"),
+                )
+                .group_by(PriceSnapshot.listing_id)
+                .subquery()
+            )
+            lowest_price_result = await db.execute(
+                select(func.min(PriceSnapshot.price))
+                .join(_latest_subq, and_(
+                    PriceSnapshot.listing_id == _latest_subq.c.listing_id,
+                    PriceSnapshot.scraped_at == _latest_subq.c.latest_at,
+                ))
+                .join(Listing, PriceSnapshot.listing_id == Listing.id)
+                .where(Listing.event_id == event.id)
+                .where(Listing.is_available == True)
+            )
+            lowest_price = lowest_price_result.scalar_one_or_none()
+
             if watch_rows:
                 refresh_interval_minutes = watch_rows[0][0].refresh_interval_minutes
                 target_price = watch_rows[0][0].target_price
@@ -202,8 +223,6 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
                     snaps = snaps_result.scalars().all()
                     if snaps:
                         latest_price = snaps[0].price
-                        if lowest_price is None or latest_price < lowest_price:
-                            lowest_price = latest_price
                         if len(snaps) >= 2:
                             prev_price = snaps[1].price
                             if latest_price > watch.target_price and latest_price <= watch.target_price * 1.10:
@@ -219,22 +238,6 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
                     status = min(per_watch_statuses, key=lambda s: _STATUS_PRIORITY.get(s, 99))
                 if recent_alert:
                     status = "Alert Sent"
-            else:
-                # No watches — fall back to all listings for lowest price
-                all_ids_result = await db.execute(
-                    select(Listing.id).where(Listing.event_id == event.id)
-                )
-                for lid in all_ids_result.scalars().all():
-                    snap_result = await db.execute(
-                        select(PriceSnapshot)
-                        .where(PriceSnapshot.listing_id == lid)
-                        .order_by(desc(PriceSnapshot.scraped_at))
-                        .limit(1)
-                    )
-                    snap = snap_result.scalar_one_or_none()
-                    if snap and (lowest_price is None or snap.price < lowest_price):
-                        lowest_price = snap.price
-
         # Pre-compute sortable date (YYYY-MM-DD) and % to target for client-side sorting
         sort_date = "9999-99-99"
         if event.event_date:
@@ -264,28 +267,11 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "refresh_interval_minutes": refresh_interval_minutes,
             "sort_date": sort_date,
             "pct_to_target": pct_to_target,
+            "date_changed_at": event.date_changed_at,
+            "previous_event_date": event.previous_event_date,
         })
 
     return templates.TemplateResponse(request, "dashboard.html", {"events": events_list})
-
-
-@router.get("/events/{event_id}/setup", response_class=HTMLResponse)
-async def event_setup(event_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    event_result = await db.execute(select(Event).where(Event.id == event_id))
-    event_obj = event_result.scalar_one_or_none()
-    if not event_obj:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    available_quantities = _parse_quantities(event_obj.available_quantities)
-    return templates.TemplateResponse(request, "setup.html", {
-        "event": {
-            "id": event_obj.id,
-            "name": event_obj.name,
-            "venue": event_obj.venue,
-            "event_date": event_obj.event_date,
-        },
-        "available_quantities": available_quantities,
-    })
 
 
 @router.get("/events/{event_id}", response_class=HTMLResponse)
@@ -294,9 +280,6 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     event_obj = event_result.scalar_one_or_none()
     if not event_obj:
         raise HTTPException(status_code=404, detail="Event not found")
-
-    if event_obj.quantity is None:
-        return RedirectResponse(url=f"/events/{event_id}/setup", status_code=303)
 
     listings_result = await db.execute(
         select(Listing).where(Listing.event_id == event_id)
@@ -575,10 +558,11 @@ async def add_event(
         return RedirectResponse(url="/", status_code=303)
 
     is_sold_out = False
+    scraped_date: str | None = None
     try:
         loop = asyncio.get_event_loop()
         # quantity=None → unfiltered scrape; discovers all listings and available quantities
-        scraped_results, available_quantities = await loop.run_in_executor(None, _scrape_sync, url)
+        scraped_results, available_quantities, scraped_date = await loop.run_in_executor(None, _scrape_sync, url)
     except EventEndedException:
         # Event is already over — Ticketmaster is no longer serving listings for it.
         # The Event row has not been created yet at this point, so nothing to clean up.
@@ -591,6 +575,7 @@ async def add_event(
         # Save the event anyway so we can monitor it and alert when listings first appear.
         is_sold_out = True
         scraped_results, available_quantities = [], []
+        scraped_date = None
     except Exception as e:
         import traceback
         logger.error(f"Add event failed: {e}\n{traceback.format_exc()}")
@@ -602,7 +587,9 @@ async def add_event(
     if not scraped_results and not is_sold_out:
         return JSONResponse(status_code=400, content={"error": "No listings found at that URL. The page may have failed to load — please try again."})
 
-    name, event_date = _parse_url_slug(url)
+    name, slug_date = _parse_url_slug(url)
+    # Prefer the date scraped from the page (more reliable than URL slug parsing).
+    event_date = scraped_date or slug_date
     now = datetime.now(timezone.utc)
 
     event = Event(
@@ -670,14 +657,6 @@ async def add_event(
     return RedirectResponse(url=f"/events/{event.id}", status_code=303)
 
 
-@router.post("/events/{event_id}/quantity")
-async def update_quantity(event_id: int):
-    return JSONResponse(
-        status_code=410,
-        content={"error": "Per-event quantity is no longer supported. Set quantity per watch instead."},
-    )
-
-
 @router.post("/events/{event_id}/toggle")
 async def toggle_event(event_id: int, db: AsyncSession = Depends(get_db)):
     event_result = await db.execute(select(Event).where(Event.id == event_id))
@@ -706,6 +685,18 @@ async def toggle_event(event_id: int, db: AsyncSession = Depends(get_db)):
     return JSONResponse({"is_active": event.is_active})
 
 
+@router.post("/events/{event_id}/acknowledge-date-change")
+async def acknowledge_date_change(event_id: int, db: AsyncSession = Depends(get_db)):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event = event_result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event.date_changed_at = None
+    event.previous_event_date = None
+    await db.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.delete("/events/{event_id}")
 async def delete_event(event_id: int, db: AsyncSession = Depends(get_db)):
     event_result = await db.execute(select(Event).where(Event.id == event_id))
@@ -731,6 +722,7 @@ async def delete_event(event_id: int, db: AsyncSession = Depends(get_db)):
         await db.execute(delete(UserWatch).where(UserWatch.listing_id.in_(listing_ids)))
         await db.execute(delete(Listing).where(Listing.event_id == event_id))
 
+    remove_availability_job(event_id)
     await db.execute(delete(AlertHistoryLog).where(AlertHistoryLog.event_id == event_id))
 
     await db.delete(event)
@@ -747,7 +739,7 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         loop = asyncio.get_event_loop()
-        scraped_results, _ = await loop.run_in_executor(
+        scraped_results, _, scraped_date = await loop.run_in_executor(
             None, _scrape_sync, event.ticketmaster_url
         )
     except EventEndedException:
@@ -763,6 +755,9 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.error("Manual scrape failed for event %d: %s", event_id, e)
         return JSONResponse(status_code=500, content={"error": f"Scrape failed: {e}"})
+
+    from app.scheduler.engine import _check_and_update_date
+    await _check_and_update_date(event, scraped_date, datetime.now(timezone.utc))
 
     await _reconcile_listings(db, event_id, scraped_results)
 

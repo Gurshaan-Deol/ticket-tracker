@@ -815,8 +815,8 @@
   // ── Availability watches state ────────────────────────────────────────────
   const sectionWatches = {};
   {% for w in availability_watches %}
-  if (!sectionWatches["{{ w.section_name }}"]) sectionWatches["{{ w.section_name }}"] = [];
-  sectionWatches["{{ w.section_name }}"].push({ quantity: {{ w.quantity }}, watchId: {{ w.id }} });
+  if (!sectionWatches[{{ w.section_name | tojson }}]) sectionWatches[{{ w.section_name | tojson }}] = [];
+  sectionWatches[{{ w.section_name | tojson }}].push({ quantity: {{ w.quantity }}, watchId: {{ w.id }} });
   {% endfor %}
 
   function getWatchesForSection(name) {
@@ -839,6 +839,10 @@
   }
 
   // ── Unavailable sections table ────────────────────────────────────────────
+  function escAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  }
+
   function renderUnavailableSections() {
     var tbody = document.getElementById('unavailable-tbody');
     if (!tbody) return;
@@ -873,7 +877,7 @@
       tr.innerHTML =
         '<td class="px-4 py-3 font-medium text-gray-400">' + displayName + '</td>' +
         '<td class="px-4 py-3">' + typeLabel + '</td>' +
-        '<td class="px-4 py-3"><button class="' + btnClass + '" data-section-idx="' + idx + '">' + watchLabels + '</button></td>';
+        '<td class="px-4 py-3"><button class="' + btnClass + '" data-section-name="' + escAttr(section.name) + '">' + watchLabels + '</button></td>';
       tbody.appendChild(tr);
     });
   }
@@ -937,7 +941,8 @@
     unavailTbody.addEventListener('click', function (e) {
       var btn = e.target.closest('.av-bell-btn');
       if (!btn) return;
-      currentSectionObj = UNAVAILABLE_SECTIONS[parseInt(btn.dataset.sectionIdx, 10)];
+      currentSectionObj = UNAVAILABLE_SECTIONS.find(function (s) { return s.name === btn.dataset.sectionName; });
+      if (!currentSectionObj) return;
       var qtys = (currentSectionObj.unavailable_quantities ||
                   currentSectionObj.seen_quantities || [])
                   .map(Number)
