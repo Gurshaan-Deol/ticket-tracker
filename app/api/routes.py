@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
+from app.models import AlertHistoryLog, AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
 from app.scraper.ticketmaster import EventEndedException, SoldOutException, fetch_venue_sections, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import (
     _cancel_all_jobs_for_event,
@@ -545,6 +545,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
             "ticketmaster_url": event_obj.ticketmaster_url,
             "is_active": event_obj.is_active,
             "quantity": event_obj.quantity,
+            "notes": event_obj.notes,
         },
         "available_quantities": available_quantities,
         "listings": listings_data,
@@ -729,6 +730,8 @@ async def delete_event(event_id: int, db: AsyncSession = Depends(get_db)):
         await db.execute(delete(PriceSnapshot).where(PriceSnapshot.listing_id.in_(listing_ids)))
         await db.execute(delete(UserWatch).where(UserWatch.listing_id.in_(listing_ids)))
         await db.execute(delete(Listing).where(Listing.event_id == event_id))
+
+    await db.execute(delete(AlertHistoryLog).where(AlertHistoryLog.event_id == event_id))
 
     await db.delete(event)
     await db.commit()
@@ -969,6 +972,40 @@ async def summarize_listing(listing_id: int, db: AsyncSession = Depends(get_db))
     from app.ai.client import summarize_price_history
     summary = await summarize_price_history(snaps_dicts)
     return JSONResponse({"summary": summary})
+
+
+# ---------------------------------------------------------------------------
+# Event notes
+# ---------------------------------------------------------------------------
+
+
+@router.post("/events/{event_id}/notes")
+async def update_event_notes(
+    event_id: int,
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event = event_result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event.notes = notes.strip() or None
+    await db.commit()
+    return JSONResponse({"notes": event.notes})
+
+
+# ---------------------------------------------------------------------------
+# Alert History
+# ---------------------------------------------------------------------------
+
+
+@router.get("/alerts/history", response_class=HTMLResponse)
+async def alert_history(request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(AlertHistoryLog).order_by(desc(AlertHistoryLog.alerted_at))
+    )
+    logs = result.scalars().all()
+    return templates.TemplateResponse(request, "alert_history.html", {"logs": logs})
 
 
 # ---------------------------------------------------------------------------

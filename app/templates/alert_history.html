@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Alert History — Ticket Tracker{% endblock %}
+
+{% block content %}
+
+<div class="mb-8">
+  <h1 class="text-3xl font-bold">Alert History</h1>
+  <p class="mt-1 text-sm text-gray-400">Every alert that has fired, most recent first.</p>
+</div>
+
+{% if logs %}
+<div class="overflow-x-auto rounded-lg border border-gray-800">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-800 bg-gray-900/60">
+        <th class="px-4 py-3 font-medium">Date / Time</th>
+        <th class="px-4 py-3 font-medium">Event</th>
+        <th class="px-4 py-3 font-medium">Section</th>
+        <th class="px-4 py-3 font-medium">Qty</th>
+        <th class="px-4 py-3 font-medium">Price at Alert</th>
+        <th class="px-4 py-3 font-medium">Target Price</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition">
+        <td class="px-4 py-3 text-gray-300 whitespace-nowrap">
+          {{ log.alerted_at.strftime('%b %-d %Y, %H:%M') if log.alerted_at else '—' }}
+        </td>
+        <td class="px-4 py-3 font-medium">
+          <a href="/events/{{ log.event_id }}"
+             class="text-green-400 hover:text-green-300 transition">
+            {{ log.event_name }}
+          </a>
+        </td>
+        <td class="px-4 py-3 text-gray-300">{{ log.section_name }}</td>
+        <td class="px-4 py-3 text-gray-300">{{ log.quantity }}</td>
+        <td class="px-4 py-3 font-medium text-white">${{ "%.2f"|format(log.price_at_alert) }}</td>
+        <td class="px-4 py-3 text-gray-400">
+          {% if log.target_price is not none %}
+            ${{ "%.2f"|format(log.target_price) }}
+          {% else %}
+            <span class="text-gray-600">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-xs text-gray-600">{{ logs | length }} alert{{ 's' if logs | length != 1 else '' }} total</p>
+
+{% else %}
+<div class="rounded-lg border border-gray-800 bg-gray-900/40 px-6 py-12 text-center">
+  <p class="text-gray-500">No alerts have fired yet.</p>
+  <p class="mt-1 text-xs text-gray-600">Alerts appear here once a watched price drops to or below your target.</p>
+</div>
+{% endif %}
+
+{% endblock %}

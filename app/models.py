@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,6 +19,7 @@ class Event(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_ended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
     availability_watches: Mapped[list["AvailabilityWatch"]] = relationship(
@@ -26,6 +27,9 @@ class Event(Base):
     )
     venue_sections: Mapped[list["VenueSection"]] = relationship(
         "VenueSection", back_populates="event", cascade="all, delete-orphan"
+    )
+    alert_history_logs: Mapped[list["AlertHistoryLog"]] = relationship(
+        "AlertHistoryLog", back_populates="event"
     )
 
 
@@ -136,8 +140,25 @@ class AlertLog(Base):
     listing: Mapped["Listing"] = relationship("Listing", back_populates="alert_logs")
 
 
+class AlertHistoryLog(Base):
+    """Persistent record written every time an alert fires, for the Alert History page."""
+    __tablename__ = "alert_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
+    event_name: Mapped[str] = mapped_column(String, nullable=False)
+    section_name: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_at_alert: Mapped[float] = mapped_column(Float, nullable=False)
+    target_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    alerted_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    event: Mapped["Event"] = relationship("Event", back_populates="alert_history_logs")
+
+
 Index("ix_listings_event_id", Listing.event_id)
 Index("ix_user_watches_listing_id", UserWatch.listing_id)
 Index("ix_price_snapshots_listing_id", PriceSnapshot.listing_id)
 Index("ix_alert_log_listing_alerted", AlertLog.listing_id, AlertLog.alerted_at)
 Index("ix_availability_watches_event_id", AvailabilityWatch.event_id)
+Index("ix_alert_logs_event_alerted", AlertHistoryLog.event_id, AlertHistoryLog.alerted_at)

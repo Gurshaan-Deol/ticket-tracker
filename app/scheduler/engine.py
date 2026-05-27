@@ -8,7 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
+from app.models import AlertHistoryLog, AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
 from app.scraper.ticketmaster import EventEndedException, scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,19 @@ async def run_availability_check(event_id: int) -> None:
                     if watch.last_alerted_at > cooldown_cutoff:
                         continue
 
-                await fire_availability_alert(watch, event, current_price)
+                try:
+                    await fire_availability_alert(watch, event, current_price)
+                    session.add(AlertHistoryLog(
+                        event_id=event.id,
+                        event_name=event.name,
+                        section_name=watch.section_name,
+                        quantity=watch.quantity,
+                        price_at_alert=current_price,
+                        target_price=watch.target_price,
+                        alerted_at=now,
+                    ))
+                except Exception:
+                    raise
                 watch.last_alerted_at = now
 
             await session.commit()
@@ -328,13 +340,25 @@ async def run_watch_job(watch_id: int) -> None:
                     .limit(1)
                 )
                 if not recent_result.scalar_one_or_none():
-                    channels_used = await fire_alert(watch, listing, event, current_price)
-                    session.add(AlertLog(
-                        listing_id=listing.id,
-                        price_at_alert=current_price,
-                        alerted_at=now,
-                        channels_used=channels_used,
-                    ))
+                    try:
+                        channels_used = await fire_alert(watch, listing, event, current_price)
+                        session.add(AlertLog(
+                            listing_id=listing.id,
+                            price_at_alert=current_price,
+                            alerted_at=now,
+                            channels_used=channels_used,
+                        ))
+                        session.add(AlertHistoryLog(
+                            event_id=event.id,
+                            event_name=event.name,
+                            section_name=listing.name,
+                            quantity=watch.quantity or listing.quantity or 1,
+                            price_at_alert=current_price,
+                            target_price=watch.target_price,
+                            alerted_at=now,
+                        ))
+                    except Exception:
+                        raise
         else:
             logger.info(
                 "Watch %d — listing '%s' not found in scraped results", watch_id, listing.name

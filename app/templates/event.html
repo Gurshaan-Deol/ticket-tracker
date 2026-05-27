@@ -38,6 +38,47 @@
   </div>
 </div>
 
+<!-- Notes -->
+<div id="notes-section" class="mb-6 -mt-2">
+  <div id="notes-display">
+    {% if event.notes %}
+    <div class="flex items-start gap-3">
+      <p id="notes-text"
+         class="flex-1 text-sm text-gray-400 bg-gray-900 border border-gray-800
+                rounded-lg px-4 py-3 leading-relaxed whitespace-pre-wrap">{{ event.notes }}</p>
+      <button id="notes-edit-btn"
+              class="text-xs text-gray-600 hover:text-gray-300 transition shrink-0 mt-3">
+        Edit
+      </button>
+    </div>
+    {% else %}
+    <button id="notes-placeholder-btn"
+            class="text-sm text-gray-700 hover:text-gray-500 transition italic">
+      + Add a note…
+    </button>
+    {% endif %}
+  </div>
+  <div id="notes-edit" class="hidden">
+    <textarea id="notes-textarea"
+              class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                     text-sm text-gray-300 leading-relaxed resize-none
+                     focus:outline-none focus:border-gray-500"
+              rows="3"
+              placeholder="Add a note about this event…">{{ event.notes or '' }}</textarea>
+    <div class="flex gap-2 mt-2">
+      <button id="notes-save-btn"
+              class="text-xs bg-gray-700 hover:bg-gray-600 text-white
+                     px-3 py-1.5 rounded transition">
+        Save
+      </button>
+      <button id="notes-cancel-btn"
+              class="text-xs text-gray-600 hover:text-gray-300 transition px-3 py-1.5">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Listings Table -->
 {% if listings %}
 {% set _avail = listings | selectattr("is_available") | list %}
@@ -1010,6 +1051,87 @@
       if (matchingBtn) matchingBtn.click();
       history.replaceState(null, '', window.location.pathname);
     }
+  })();
+
+  // ── Notes (inline edit, no page reload) ──────────────────────────────────
+  (function () {
+    var notesDisplay  = document.getElementById('notes-display');
+    var notesEdit     = document.getElementById('notes-edit');
+    var notesTextarea = document.getElementById('notes-textarea');
+    var notesSaveBtn  = document.getElementById('notes-save-btn');
+    var notesCancelBtn = document.getElementById('notes-cancel-btn');
+
+    // Tracks the last-committed text so Cancel can restore it.
+    var savedNotes = (notesTextarea && notesTextarea.value) || '';
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+    }
+
+    function showEdit() {
+      notesDisplay.classList.add('hidden');
+      notesEdit.classList.remove('hidden');
+      notesTextarea.focus();
+    }
+
+    // Rebuild the display div after a save (or cancel-to-empty).
+    function showDisplay(text) {
+      if (text) {
+        notesDisplay.innerHTML =
+          '<div class="flex items-start gap-3">' +
+            '<p id="notes-text" class="flex-1 text-sm text-gray-400 bg-gray-900 border ' +
+              'border-gray-800 rounded-lg px-4 py-3 leading-relaxed whitespace-pre-wrap">' +
+              escapeHtml(text) +
+            '</p>' +
+            '<button id="notes-edit-btn" class="text-xs text-gray-600 hover:text-gray-300 ' +
+              'transition shrink-0 mt-3">Edit</button>' +
+          '</div>';
+        document.getElementById('notes-edit-btn').addEventListener('click', showEdit);
+      } else {
+        notesDisplay.innerHTML =
+          '<button id="notes-placeholder-btn" class="text-sm text-gray-700 ' +
+            'hover:text-gray-500 transition italic">+ Add a note…</button>';
+        document.getElementById('notes-placeholder-btn').addEventListener('click', showEdit);
+      }
+      notesDisplay.classList.remove('hidden');
+      notesEdit.classList.add('hidden');
+    }
+
+    // Wire buttons that exist on initial page render.
+    var editBtn        = document.getElementById('notes-edit-btn');
+    var placeholderBtn = document.getElementById('notes-placeholder-btn');
+    if (editBtn)        editBtn.addEventListener('click', showEdit);
+    if (placeholderBtn) placeholderBtn.addEventListener('click', showEdit);
+
+    notesCancelBtn.addEventListener('click', function () {
+      notesTextarea.value = savedNotes;
+      showDisplay(savedNotes);
+    });
+
+    notesSaveBtn.addEventListener('click', async function () {
+      var newNotes = notesTextarea.value.trim();
+      notesSaveBtn.disabled = true;
+      notesSaveBtn.textContent = 'Saving…';
+      try {
+        var fd = new FormData();
+        fd.append('notes', newNotes);
+        var resp = await fetch('/events/{{ event.id }}/notes', { method: 'POST', body: fd });
+        if (resp.ok) {
+          var data = await resp.json();
+          savedNotes = data.notes || '';
+          notesTextarea.value = savedNotes;
+          showDisplay(savedNotes);
+        } else {
+          alert('Failed to save note — please try again.');
+        }
+      } catch (err) {
+        alert('Failed to save note: ' + err.message);
+      }
+      notesSaveBtn.disabled = false;
+      notesSaveBtn.textContent = 'Save';
+    });
   })();
 </script>
 
