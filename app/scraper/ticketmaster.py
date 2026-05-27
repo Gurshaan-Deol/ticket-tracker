@@ -11,6 +11,11 @@ from app.scraper.browser import managed_browser_context
 
 logger = logging.getLogger(__name__)
 
+
+class EventEndedException(Exception):
+    """Raised when Ticketmaster indicates the event has passed."""
+    pass
+
 PRICE_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
 
 # Child selectors used to pull a listing name from a container element.
@@ -105,6 +110,8 @@ async def scrape_event(url: str) -> tuple[list[ListingResult], list[int]]:
             len(results), available_quantities, url,
         )
         return results, available_quantities
+    except EventEndedException:
+        raise  # already logged in _check_event_ended; let callers handle it
     except Exception:
         logger.exception("Scrape failed for %s", url)
         raise
@@ -141,6 +148,10 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int
         await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
 
         await _accept_cookies(page)
+
+        # Exit immediately if the event has already taken place — before the
+        # 20 s offers-API wait so we never waste time on a dead page.
+        await _check_event_ended(page, url)
 
         # Poll until the offers API response arrives, then close immediately.
         max_wait_ms = 20_000
@@ -185,6 +196,20 @@ async def _scrape_page(context, url: str) -> tuple[list[ListingResult], list[int
         return results, available_quantities
     finally:
         await page.close()
+
+
+async def _check_event_ended(page, url: str) -> None:
+    """Raise EventEndedException if Ticketmaster signals the event has passed."""
+    # Fast path: check for the specific DOM element TM renders on ended events.
+    ended_el = await page.query_selector('[data-bdd="canceled-event-header-title"]')
+    if ended_el is not None:
+        logger.info("Ended event detected (DOM element) for URL: %s", url)
+        raise EventEndedException(f"Event has ended: {url}")
+    # Fallback: check for the canonical ended-event phrase in the raw HTML.
+    html = await page.content()
+    if "ticket sales have stopped" in html:
+        logger.info("Ended event detected (phrase match) for URL: %s", url)
+        raise EventEndedException(f"Event has ended: {url}")
 
 
 async def _accept_cookies(page) -> None:

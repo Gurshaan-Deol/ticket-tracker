@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import scrape_event, scrape_event_sync
+from app.scraper.ticketmaster import EventEndedException, scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -89,6 +89,25 @@ def remove_availability_job(event_id: int) -> None:
         pass
 
 
+async def _cancel_all_jobs_for_event(event_id: int) -> None:
+    """Remove every scheduler job associated with an event.
+
+    Cancels all UserWatch jobs for the event's listings and the single
+    AvailabilityWatch job keyed by event_id.  Opens its own DB session so
+    callers don't need to pass one in.
+    """
+    async with AsyncSessionLocal() as session:
+        watches_result = await session.execute(
+            select(UserWatch)
+            .join(Listing, UserWatch.listing_id == Listing.id)
+            .where(Listing.event_id == event_id)
+        )
+        for watch in watches_result.scalars().all():
+            remove_watch_job(watch.id)
+    remove_availability_job(event_id)
+    logger.info("Cancelled all scheduler jobs for event %d", event_id)
+
+
 async def run_availability_check(event_id: int) -> None:
     async with AsyncSessionLocal() as session:
         try:
@@ -108,9 +127,20 @@ async def run_availability_check(event_id: int) -> None:
             if not watches:
                 return
 
-            scraped_results, _ = await asyncio.get_running_loop().run_in_executor(
-                None, scrape_event_sync, event.ticketmaster_url
-            )
+            try:
+                scraped_results, _ = await asyncio.get_running_loop().run_in_executor(
+                    None, scrape_event_sync, event.ticketmaster_url
+                )
+            except EventEndedException:
+                logger.info(
+                    "Event %d has ended (availability check) — marking ended and cancelling jobs.",
+                    event_id,
+                )
+                event.is_ended = True
+                event.is_active = False
+                await session.commit()
+                await _cancel_all_jobs_for_event(event_id)
+                return
 
             scraped_map: dict[tuple[str, int], float] = {}
             for r in scraped_results:
@@ -216,6 +246,16 @@ async def run_watch_job(watch_id: int) -> None:
             scraped_results, _ = await loop.run_in_executor(
                 None, scrape_event_sync, event.ticketmaster_url
             )
+        except EventEndedException:
+            logger.info(
+                "Event %d has ended — marking ended and cancelling all jobs.",
+                event.id,
+            )
+            event.is_ended = True
+            event.is_active = False
+            await session.commit()
+            await _cancel_all_jobs_for_event(event.id)
+            return
         except Exception as e:
             logger.error("Scrape failed for watch %d: %s", watch_id, e)
             return

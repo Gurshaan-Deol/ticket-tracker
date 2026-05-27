@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models import AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
-from app.scraper.ticketmaster import fetch_venue_sections, scrape_event_sync as _scrape_sync
+from app.scraper.ticketmaster import EventEndedException, fetch_venue_sections, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import (
+    _cancel_all_jobs_for_event,
     remove_availability_job,
     remove_watch_job,
     schedule_availability_job,
@@ -254,6 +255,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "event_date": event.event_date,
             "ticketmaster_url": event.ticketmaster_url,
             "is_active": event.is_active,
+            "is_ended": event.is_ended,
             "setup_complete": setup_complete,
             "lowest_price": lowest_price,
             "target_price": target_price,
@@ -575,6 +577,13 @@ async def add_event(
         loop = asyncio.get_event_loop()
         # quantity=None → unfiltered scrape; discovers all listings and available quantities
         scraped_results, available_quantities = await loop.run_in_executor(None, _scrape_sync, url)
+    except EventEndedException:
+        # Event is already over — Ticketmaster is no longer serving listings for it.
+        # The Event row has not been created yet at this point, so nothing to clean up.
+        return JSONResponse(
+            status_code=400,
+            content={"error": "This event has already ended. Ticketmaster is no longer showing tickets for it."},
+        )
     except Exception as e:
         import traceback
         logger.error(f"Add event failed: {e}\n{traceback.format_exc()}")
@@ -731,6 +740,13 @@ async def trigger_scrape(event_id: int, db: AsyncSession = Depends(get_db)):
         scraped_results, _ = await loop.run_in_executor(
             None, _scrape_sync, event.ticketmaster_url
         )
+    except EventEndedException:
+        logger.info("Event %d detected as ended during manual scrape — marking ended.", event_id)
+        event.is_ended = True
+        event.is_active = False
+        await db.commit()
+        await _cancel_all_jobs_for_event(event_id)
+        return JSONResponse({"ended": True})
     except Exception as e:
         logger.error("Manual scrape failed for event %d: %s", event_id, e)
         return JSONResponse(status_code=500, content={"error": f"Scrape failed: {e}"})

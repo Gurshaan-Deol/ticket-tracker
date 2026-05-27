@@ -18,6 +18,7 @@ class Event(Base):
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_ended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     listings: Mapped[list["Listing"]] = relationship("Listing", back_populates="event")
     availability_watches: Mapped[list["AvailabilityWatch"]] = relationship(
