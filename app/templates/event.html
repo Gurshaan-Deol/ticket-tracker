@@ -75,7 +75,7 @@
         </th>
         <th class="px-4 py-3 font-medium">Your Target</th>
         <th class="px-4 py-3 font-medium">Interval</th>
-        <th class="px-4 py-3 font-medium">Actions</th>
+        <th class="px-4 py-3 font-medium" id="actions-th">Actions</th>
       </tr>
     </thead>
     <tbody id="available-tbody">
@@ -110,7 +110,7 @@
         </td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3 actions-td">
           <div class="flex gap-2 flex-wrap">
             <button class="grouped-set-watch-btn text-xs bg-green-800
                            hover:bg-green-700 text-white px-2 py-1
@@ -125,19 +125,7 @@
         <td colspan="6" class="px-4 py-4">
           <form class="grouped-save-watch-form flex flex-wrap gap-4 items-end"
                 data-loop-index="{{ loop.index }}">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-500">Tickets</label>
-              <select name="quantity" required
-                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
-                             text-sm w-24 focus:outline-none focus:border-green-500">
-                <option value="">Select</option>
-                {% for qty, price in l.quantity_price_map.items() %}
-                <option value="{{ qty }}">
-                  {{ qty }} ticket{{ 's' if qty|int != 1 else '' }} — ${{ "%.2f" | format(price) }}
-                </option>
-                {% endfor %}
-              </select>
-            </div>
+            <input type="hidden" name="quantity" value="">
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Target Price ($)</label>
               <input type="number" name="target_price" step="0.01" min="0.01" required
@@ -227,7 +215,7 @@
             <span class="text-gray-600">—</span>
           {% endif %}
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3 actions-td">
           <div class="flex gap-2 flex-wrap">
             <button class="set-watch-btn text-xs bg-green-800 hover:bg-green-700 text-white px-2 py-1 rounded transition"
                     data-listing-id="{{ l.id }}">
@@ -254,17 +242,7 @@
       <tr class="border-b border-gray-800 bg-gray-900/60 hidden" id="watch-form-{{ l.id }}">
         <td colspan="6" class="px-4 py-4">
           <form class="save-watch-form flex flex-wrap gap-4 items-end" data-listing-id="{{ l.id }}">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-500">Tickets</label>
-              <select name="quantity" required
-                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
-                             text-sm w-24 focus:outline-none focus:border-green-500">
-                <option value="">Select</option>
-                {% for n in available_quantities %}
-                <option value="{{ n }}">{{ n }} ticket{{ 's' if n != 1 else '' }}</option>
-                {% endfor %}
-              </select>
-            </div>
+            <input type="hidden" name="quantity" value="">
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Target Price ($)</label>
               <input type="number" name="target_price" step="0.01" min="0.01" required
@@ -395,6 +373,12 @@
   // ── Quantity filter pills ────────────────────────────────────────────────────
   var activeQtyFilter = 'all';
 
+  // Hide Actions column on page load (only visible when a qty filter is active)
+  document.getElementById('actions-th').style.display = 'none';
+  document.querySelectorAll('.actions-td').forEach(function(td) {
+    td.style.display = 'none';
+  });
+
   document.querySelectorAll('.qty-filter-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       activeQtyFilter = this.dataset.qty;
@@ -435,6 +419,12 @@
       });
 
       renderUnavailableSections();
+
+      var showActions = activeQtyFilter !== 'all';
+      document.getElementById('actions-th').style.display = showActions ? '' : 'none';
+      document.querySelectorAll('.actions-td').forEach(function(td) {
+        td.style.display = showActions ? '' : 'none';
+      });
     });
   });
 
@@ -473,10 +463,8 @@
       var parentTr = this.closest('tr');
       var formTr = parentTr.nextElementSibling;
       formTr.classList.toggle('hidden');
-      if (activeQtyFilter !== 'all') {
-        var qtySelect = formTr.querySelector('[name=quantity]');
-        if (qtySelect) qtySelect.value = activeQtyFilter;
-      }
+      var qtyInput = formTr.querySelector('[name=quantity]');
+      if (qtyInput) qtyInput.value = activeQtyFilter;
     });
   });
 
@@ -541,12 +529,10 @@
       const id = this.dataset.listingId;
       const row = document.getElementById('watch-form-' + id);
       row.classList.toggle('hidden');
-      if (activeQtyFilter !== 'all') {
-        var qtySelect = document.querySelector(
-          '#watch-form-' + id + ' [name=quantity]'
-        );
-        if (qtySelect) qtySelect.value = activeQtyFilter;
-      }
+      var qtyInput = document.querySelector(
+        '#watch-form-' + id + ' [name=quantity]'
+      );
+      if (qtyInput) qtyInput.value = activeQtyFilter;
     });
   });
 
