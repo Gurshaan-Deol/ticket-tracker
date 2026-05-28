@@ -1,159 +1,147 @@
-# 🎟 Ticket Tracker
+# Ticket Tracker
 
-A self-hosted Ticketmaster resale ticket price tracker. Add events, set target prices per listing, and get notified when prices drop — via Telegram, email, or desktop notification. Runs entirely with `docker compose up`.
+A self-hosted tool for tracking Ticketmaster resale prices. You add an event URL, pick the listings you care about, set a target price, and it emails or notifies you when something drops. All of it runs locally with `docker compose up`.
 
-> **Tracks resale (secondary market) prices only.** Primary/face value tickets are not included.
-
----
-
-## Features
-
-- **Price history charts** — interactive Chart.js line graph per listing showing price movement over time, with toggle show/hide and sort-aware rendering
-- **Multi-channel alerts** — Telegram bot, email (SMTP), and desktop notifications; enable any combination via `.env`
-- **Alert controls** — per-watch target price, configurable cooldown window, and minimum drop percentage filter to suppress noise
-- **Confirmation re-scrape** — before firing an alert, the app scrapes again to confirm the price is real (not a blip)
-- **Bot evasion** — headful Playwright via Xvfb virtual display, `playwright-stealth`, user agent rotation, and randomized polling jitter
-- **Pause/resume events** — stop tracking without losing price history
-- **AI features (optional)** — natural language event search and plain-English price history summaries; works with OpenAI, Gemini, or a local Ollama model. Disabled if no API key is set.
-- **Zero paid services** — SQLite database, no cloud dependencies
+Resale only — primary/face value tickets aren't tracked because those prices don't move.
 
 ---
 
-## Screenshots
+## What it does
 
-> _Add a screenshot of your dashboard and one of the event page with a chart here before publishing._
+- Scrapes resale listings for any Ticketmaster event and saves them to a local SQLite database
+- Polls each event on its own schedule with randomized jitter so it doesn't look like a bot
+- Before firing an alert, does a confirmation re-scrape to make sure the price drop is real and not a blip
+- Sends alerts via email (SMTP) or desktop notification, with a configurable cooldown so you don't get spammed
+- Shows a price history chart per listing so you can see whether a price has been trending down or just dipped once
+- Handles sold-out events — add the URL and it'll start tracking as soon as resale listings appear
+- Detects when an event date changes and flags it on the event page
+- Has optional AI features (natural language event search, price history summaries) that work with OpenAI, Gemini, or a local Ollama model — disabled automatically if no API key is set
 
 ---
 
-## Quick Start
+## Getting started
 
-**Prerequisites:** Docker and Docker Compose.
+You need Docker and Docker Compose. That's it.
 
 ```bash
 git clone https://github.com/your-username/ticket-tracker.git
 cd ticket-tracker
 cp .env.example .env
-# Edit .env with your notification credentials (see Configuration below)
+# Fill in your notification credentials (see below)
 docker compose up
 ```
 
-Open [http://localhost:8000](http://localhost:8000).
+Then open [http://localhost:8000](http://localhost:8000).
 
-The initial build takes a few minutes — Playwright downloads Chromium (~600 MB) during the build step. Subsequent starts are fast.
+The first build takes a few minutes because Playwright downloads Chromium (~600 MB). After that, starts are fast.
 
 ---
 
 ## Configuration
 
-All config is in `.env`. Copy `.env.example` and fill in what you need.
+Everything goes in `.env`. Copy `.env.example` and fill in what you want to use — nothing is required except at least one notification channel if you actually want alerts.
 
 ```env
-# Telegram (optional)
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-
-# Email via SMTP (optional)
+# Email (SMTP)
 SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-ALERT_EMAIL_TO=
+SMTP_PORT=465
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+ALERT_EMAIL_TO=your-email@gmail.com
 
-# Desktop notifications (optional — local only, does not work in Docker)
+# Desktop notifications (doesn't work inside Docker — local only)
 DESKTOP_NOTIFICATIONS_ENABLED=false
 
-# Scheduler defaults (can be overridden per-watch)
+# Polling defaults (can be overridden per watch)
 DEFAULT_ALERT_COOLDOWN_MINUTES=60
 DEFAULT_REFRESH_INTERVAL_MINUTES=30
 
-# AI features (optional — app works without this)
+# AI features (optional — app works fine without this)
 AI_PROVIDER=openai
 AI_BASE_URL=https://api.openai.com/v1
 AI_API_KEY=
 AI_MODEL=gpt-4o
 
-# For local Ollama (free):
+# Local Ollama (free, no API key needed):
 # AI_PROVIDER=ollama
 # AI_BASE_URL=http://host.docker.internal:11434/v1
 # AI_API_KEY=not-needed
 # AI_MODEL=gemma3:latest
 ```
 
-If no notification channels are configured the app still runs and records price history — you just won't get alerts.
+If you don't configure any notification channels the app still runs and records price history — you just won't get alerts.
 
 ---
 
-## How It Works
+## How it works
 
 ```
-User adds Ticketmaster URL
+Add a Ticketmaster URL
         ↓
-Initial scrape — discovers all resale listings and saves them
+Initial scrape finds all resale listings
         ↓
-User selects listings to watch, sets target price
+You pick which listings to watch and set a target price
         ↓
-Scheduler polls each event on its own interval (with ±15% jitter)
+Scheduler polls on your chosen interval (with ±15% jitter)
         ↓
-Each poll saves a PriceSnapshot per listing
+Each poll saves a price snapshot
         ↓
-If price < target: confirmation re-scrape → alert fires if still true
+Price drops below target → confirmation re-scrape
         ↓
-Cooldown and min-drop-% filters applied before notification
+Still below target → alert fires, cooldown starts
 ```
 
 ---
 
-## Architecture
+## Stack
 
-| Layer | Stack |
-|---|---|
-| Language | Python 3.11+ |
-| Web framework | FastAPI |
-| Templates | Jinja2 + vanilla JS |
-| Charts | Chart.js (CDN) |
-| Scraping | Playwright + playwright-stealth |
-| Scheduler | APScheduler (AsyncIOScheduler) |
-| Database | SQLite via SQLAlchemy (async) |
-| Migrations | Alembic |
-| Notifications | python-telegram-bot, smtplib, plyer |
-| AI | openai Python client (provider-agnostic) |
-| Containerization | Docker Compose |
+| Layer         | What                              |
+| ------------- | --------------------------------- |
+| Language      | Python 3.11+                      |
+| Web           | FastAPI + Jinja2 + vanilla JS     |
+| Charts        | Chart.js                          |
+| Scraping      | Playwright + playwright-stealth   |
+| Scheduler     | APScheduler                       |
+| Database      | SQLite via SQLAlchemy (async)     |
+| Migrations    | Alembic                           |
+| Notifications | smtplib, plyer                    |
+| AI            | openai client (provider-agnostic) |
+| Container     | Docker Compose                    |
 
 ```
 ticket-tracker/
 ├── app/
-│   ├── main.py              # FastAPI app, lifespan startup/shutdown
-│   ├── config.py            # Pydantic Settings, loads .env
-│   ├── database.py          # SQLAlchemy async engine + session factory
-│   ├── models.py            # All ORM models
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   ├── models.py
 │   ├── scraper/
-│   │   ├── browser.py       # Playwright context, stealth, UA rotation
-│   │   └── ticketmaster.py  # Page parsing, listing discovery
+│   │   ├── browser.py
+│   │   └── ticketmaster.py
 │   ├── scheduler/
-│   │   └── engine.py        # APScheduler, per-watch job management
+│   │   └── engine.py
 │   ├── notifier/
-│   │   ├── base.py          # Abstract BaseNotifier
-│   │   ├── telegram.py
+│   │   ├── base.py
 │   │   ├── email.py
 │   │   └── desktop.py
 │   ├── ai/
-│   │   └── client.py        # Provider-agnostic AI wrapper
+│   │   └── client.py
 │   ├── api/
-│   │   └── routes.py        # All FastAPI route handlers
-│   └── templates/           # Jinja2 HTML templates
+│   │   └── routes.py
+│   └── templates/
 └── data/
-    └── db.sqlite3           # Gitignored, persisted via Docker volume
+    └── db.sqlite3
 ```
 
 ---
 
-## Notes
+## A few things worth knowing
 
-**Docker image size (~2 GB):** Expected for a Playwright-based scraper. Chromium alone is ~600 MB, plus X11/Xvfb system libraries required for headful mode. Headful mode is intentional — it's significantly harder for bot-detection systems to fingerprint than `--headless`.
+**Image size is ~2 GB.** Most of that is Chromium and the X11 libraries needed to run a headful browser inside the container. Headful mode is intentional — it's much harder to fingerprint than `--headless`.
 
-**Desktop notifications in Docker:** Not supported — the container has no access to your desktop display. Use email or Telegram when running via Docker. Desktop notifications work when running the app locally outside of Docker.
+**Desktop notifications don't work in Docker.** The container has no access to your desktop display. Use email when running via Docker. Desktop notifications work if you run the app locally outside of Docker.
 
-**Resale prices only:** The scraper targets Ticketmaster's resale (fan-to-fan) inventory. Primary/face-value tickets come from a different endpoint and are not tracked. This is intentional — primary prices are fixed and don't drop.
+**Gmail users:** Use port 465 with an App Password, not your account password. Port 587 with STARTTLS tends to time out.
 
 ---
 
