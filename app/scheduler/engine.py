@@ -78,16 +78,24 @@ async def stop_scheduler() -> None:
 
 def schedule_watch_job(watch: UserWatch) -> None:
     job_id = f"watch_{watch.id}"
+    jitter_seconds = random.uniform(0, watch.refresh_interval_minutes * 0.15 * 60)
+    first_run = datetime.now() + timedelta(seconds=jitter_seconds)
     scheduler.add_job(
         run_watch_job,
-        trigger=IntervalTrigger(minutes=watch.refresh_interval_minutes),
+        trigger=IntervalTrigger(
+            minutes=watch.refresh_interval_minutes,
+            start_date=first_run,
+        ),
         id=job_id,
         args=[watch.id],
         replace_existing=True,
         misfire_grace_time=300,
         max_instances=1,
     )
-    logger.info("Scheduled job %s (every %d min)", job_id, watch.refresh_interval_minutes)
+    logger.info(
+        "Scheduled job %s (every %d min, first run in %.0fs)",
+        job_id, watch.refresh_interval_minutes, jitter_seconds,
+    )
 
 
 def remove_watch_job(watch_id: int) -> None:
@@ -281,11 +289,6 @@ async def run_watch_job(watch_id: int) -> None:
         if not watch or not watch.is_active:
             logger.warning("Watch %d not found or inactive — skipping", watch_id)
             return
-
-        # Step 1: Jitter — staggers concurrent jobs
-        jitter_seconds = random.uniform(0, watch.refresh_interval_minutes * 0.15 * 60)
-        logger.debug("Watch %d jitter: %.1fs", watch_id, jitter_seconds)
-        await asyncio.sleep(jitter_seconds)
 
         # Step 4: Load Listing and Event
         listing_result = await session.execute(select(Listing).where(Listing.id == watch.listing_id))

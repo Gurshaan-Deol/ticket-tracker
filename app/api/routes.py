@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -143,16 +144,107 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
     _STATUS_PRIORITY = {"Near Target": 0, "Price Dropping": 1, "Price Rising": 2, "Stable": 3}
 
+    event_ids = [e.id for e in events]
+    if not event_ids:
+        return templates.TemplateResponse(request, "dashboard.html", {"events": []})
+
+    # Bulk 1: all active (watch, listing) pairs across all events — replaces per-event query
+    _all_watch_rows = await db.execute(
+        select(UserWatch, Listing)
+        .join(Listing, UserWatch.listing_id == Listing.id)
+        .where(Listing.event_id.in_(event_ids))
+        .where(UserWatch.is_active == True)
+    )
+    watch_rows_by_event: dict[int, list] = {}
+    watched_listing_ids_by_event: dict[int, list[int]] = {}
+    _all_watched_listing_ids: list[int] = []
+    for _w, _l in _all_watch_rows.all():
+        watch_rows_by_event.setdefault(_l.event_id, []).append((_w, _l))
+        watched_listing_ids_by_event.setdefault(_l.event_id, []).append(_l.id)
+        _all_watched_listing_ids.append(_l.id)
+
+    # Bulk 2: most recent scraped_at per event (drives "last checked" display)
+    _latest_snap_subq = (
+        select(
+            Listing.event_id,
+            func.max(PriceSnapshot.scraped_at).label("latest_at"),
+        )
+        .select_from(PriceSnapshot)
+        .join(Listing, PriceSnapshot.listing_id == Listing.id)
+        .where(Listing.event_id.in_(event_ids))
+        .group_by(Listing.event_id)
+        .subquery()
+    )
+    latest_at_by_event: dict[int, datetime] = {}
+    for row in (await db.execute(
+        select(_latest_snap_subq.c.event_id, _latest_snap_subq.c.latest_at)
+    )).all():
+        latest_at_by_event[row.event_id] = row.latest_at
+
+    # Bulk 3: lowest current available price per event
+    _latest_per_listing_subq = (
+        select(
+            PriceSnapshot.listing_id,
+            func.max(PriceSnapshot.scraped_at).label("latest_at"),
+        )
+        .group_by(PriceSnapshot.listing_id)
+        .subquery()
+    )
+    lowest_price_by_event: dict[int, float] = {}
+    for row in (await db.execute(
+        select(Listing.event_id, func.min(PriceSnapshot.price).label("min_price"))
+        .join(_latest_per_listing_subq, and_(
+            PriceSnapshot.listing_id == _latest_per_listing_subq.c.listing_id,
+            PriceSnapshot.scraped_at == _latest_per_listing_subq.c.latest_at,
+        ))
+        .join(Listing, PriceSnapshot.listing_id == Listing.id)
+        .where(Listing.event_id.in_(event_ids))
+        .where(Listing.is_available == True)
+        .group_by(Listing.event_id)
+    )).all():
+        lowest_price_by_event[row.event_id] = row.min_price
+
+    # Bulk 4: latest 2 snapshots per watched listing — replaces the per-watch inner loop query
+    snap_prices_by_listing: dict[int, list[float]] = {}
+    if _all_watched_listing_ids:
+        _ranked_snaps_subq = (
+            select(
+                PriceSnapshot.listing_id,
+                PriceSnapshot.price,
+                func.row_number().over(
+                    partition_by=PriceSnapshot.listing_id,
+                    order_by=desc(PriceSnapshot.scraped_at),
+                ).label("rn"),
+            )
+            .where(PriceSnapshot.listing_id.in_(_all_watched_listing_ids))
+            .subquery()
+        )
+        for row in (await db.execute(
+            select(_ranked_snaps_subq.c.listing_id, _ranked_snaps_subq.c.price)
+            .where(_ranked_snaps_subq.c.rn <= 2)
+            .order_by(_ranked_snaps_subq.c.listing_id, _ranked_snaps_subq.c.rn)
+        )).all():
+            snap_prices_by_listing.setdefault(row.listing_id, []).append(row.price)
+
+    # Bulk 5: any alert fired in last 24 h, keyed by listing_id
+    recent_alerted_listing_ids: set[int] = set()
+    if _all_watched_listing_ids:
+        for row in (await db.execute(
+            select(AlertLog.listing_id)
+            .where(AlertLog.listing_id.in_(_all_watched_listing_ids))
+            .where(AlertLog.alerted_at >= alert_cutoff)
+            .distinct()
+        )).all():
+            recent_alerted_listing_ids.add(row.listing_id)
+
+    logger.debug(
+        "Dashboard: 6 fixed queries for %d events, %d watched listings",
+        len(events), len(_all_watched_listing_ids),
+    )
+
     events_list = []
     for event in events:
-        # All active watches (with their listings) for this event
-        watches_result = await db.execute(
-            select(UserWatch, Listing)
-            .join(Listing, UserWatch.listing_id == Listing.id)
-            .where(Listing.event_id == event.id)
-            .where(UserWatch.is_active == True)
-        )
-        watch_rows = watches_result.all()
+        watch_rows = watch_rows_by_event.get(event.id, [])
 
         setup_complete = event.quantity is not None
         lowest_price = None
@@ -162,69 +254,28 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         status = "Stable"
 
         if setup_complete:
-            # Most recent snapshot across all listings — drives "Last checked"
-            latest_snap_result = await db.execute(
-                select(PriceSnapshot)
-                .join(Listing, PriceSnapshot.listing_id == Listing.id)
-                .where(Listing.event_id == event.id)
-                .order_by(desc(PriceSnapshot.scraped_at))
-                .limit(1)
-            )
-            latest_snap = latest_snap_result.scalar_one_or_none()
-            if latest_snap:
-                scraped_at = latest_snap.scraped_at
-                if scraped_at.tzinfo is None:
-                    scraped_at = scraped_at.replace(tzinfo=timezone.utc)
-                last_checked_mins_ago = max(0, int((now_utc - scraped_at).total_seconds() / 60))
+            latest_at = latest_at_by_event.get(event.id)
+            if latest_at:
+                if latest_at.tzinfo is None:
+                    latest_at = latest_at.replace(tzinfo=timezone.utc)
+                last_checked_mins_ago = max(0, int((now_utc - latest_at).total_seconds() / 60))
 
-            # Lowest price across all available listings (latest snapshot per listing)
-            _latest_subq = (
-                select(
-                    PriceSnapshot.listing_id,
-                    func.max(PriceSnapshot.scraped_at).label("latest_at"),
-                )
-                .group_by(PriceSnapshot.listing_id)
-                .subquery()
-            )
-            lowest_price_result = await db.execute(
-                select(func.min(PriceSnapshot.price))
-                .join(_latest_subq, and_(
-                    PriceSnapshot.listing_id == _latest_subq.c.listing_id,
-                    PriceSnapshot.scraped_at == _latest_subq.c.latest_at,
-                ))
-                .join(Listing, PriceSnapshot.listing_id == Listing.id)
-                .where(Listing.event_id == event.id)
-                .where(Listing.is_available == True)
-            )
-            lowest_price = lowest_price_result.scalar_one_or_none()
+            lowest_price = lowest_price_by_event.get(event.id)
 
             if watch_rows:
                 refresh_interval_minutes = watch_rows[0][0].refresh_interval_minutes
                 target_price = watch_rows[0][0].target_price
-                watched_listing_ids = [row[1].id for row in watch_rows]
+                event_listing_ids = watched_listing_ids_by_event.get(event.id, [])
 
-                # Check for an alert fired in the last 24 h
-                recent_alert_result = await db.execute(
-                    select(AlertLog)
-                    .where(AlertLog.listing_id.in_(watched_listing_ids))
-                    .where(AlertLog.alerted_at >= alert_cutoff)
-                    .limit(1)
-                )
-                recent_alert = recent_alert_result.scalar_one_or_none()
+                recent_alert = any(lid in recent_alerted_listing_ids for lid in event_listing_ids)
 
                 per_watch_statuses = []
                 for watch, listing in watch_rows:
-                    snaps_result = await db.execute(
-                        select(PriceSnapshot)
-                        .where(PriceSnapshot.listing_id == listing.id)
-                        .order_by(desc(PriceSnapshot.scraped_at))
-                        .limit(2)
-                    )
-                    snaps = snaps_result.scalars().all()
+                    snaps = snap_prices_by_listing.get(listing.id, [])
                     if snaps:
-                        latest_price = snaps[0].price
+                        latest_price = snaps[0]
                         if len(snaps) >= 2:
-                            prev_price = snaps[1].price
+                            prev_price = snaps[1]
                             if latest_price > watch.target_price and latest_price <= watch.target_price * 1.10:
                                 per_watch_statuses.append("Near Target")
                             elif latest_price < prev_price:
@@ -238,6 +289,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
                     status = min(per_watch_statuses, key=lambda s: _STATUS_PRIORITY.get(s, 99))
                 if recent_alert:
                     status = "Alert Sent"
+
         # Pre-compute sortable date (YYYY-MM-DD) and % to target for client-side sorting
         sort_date = "9999-99-99"
         if event.event_date:
@@ -286,25 +338,58 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
     )
     listings = listings_result.scalars().all()
 
+    listing_ids = [l.id for l in listings]
+
+    # Bulk 1: all UserWatch rows for this event's listings — replaces per-listing query
+    watches_by_listing: dict[int, list] = {}
+    if listing_ids:
+        for w in (await db.execute(
+            select(UserWatch).where(UserWatch.listing_id.in_(listing_ids))
+        )).scalars().all():
+            watches_by_listing.setdefault(w.listing_id, []).append(w)
+
+    # Bulk 2: earliest 50 snapshots per listing via window function — replaces per-listing query
+    snaps_by_listing: dict[int, list[dict]] = {}
+    if listing_ids:
+        _snap_ranked_subq = (
+            select(
+                PriceSnapshot.listing_id,
+                PriceSnapshot.price,
+                PriceSnapshot.scraped_at,
+                func.row_number().over(
+                    partition_by=PriceSnapshot.listing_id,
+                    order_by=PriceSnapshot.scraped_at.asc(),
+                ).label("rn"),
+            )
+            .where(PriceSnapshot.listing_id.in_(listing_ids))
+            .subquery()
+        )
+        for row in (await db.execute(
+            select(
+                _snap_ranked_subq.c.listing_id,
+                _snap_ranked_subq.c.price,
+                _snap_ranked_subq.c.scraped_at,
+            )
+            .where(_snap_ranked_subq.c.rn <= 50)
+            .order_by(_snap_ranked_subq.c.listing_id, _snap_ranked_subq.c.scraped_at)
+        )).all():
+            snaps_by_listing.setdefault(row.listing_id, []).append(
+                {"price": row.price, "scraped_at": row.scraped_at.isoformat()}
+            )
+
+    logger.debug(
+        "Event detail %d: 4 fixed queries for %d listings",
+        event_id, len(listing_ids),
+    )
+
     listings_data = []
     snapshot_chart_data = []
 
     for listing in listings:
-        watches_result = await db.execute(
-            select(UserWatch).where(UserWatch.listing_id == listing.id)
-        )
-        watches = watches_result.scalars().all()
+        watches = watches_by_listing.get(listing.id, [])
+        snaps_dicts = snaps_by_listing.get(listing.id, [])
 
-        snaps_result = await db.execute(
-            select(PriceSnapshot)
-            .where(PriceSnapshot.listing_id == listing.id)
-            .order_by(PriceSnapshot.scraped_at.asc())
-            .limit(50)
-        )
-        snapshots = snaps_result.scalars().all()
-        snaps_dicts = [{"price": s.price, "scraped_at": s.scraped_at.isoformat()} for s in snapshots]
-
-        if snapshots:  # only show listings with price data for selected quantity
+        if snaps_dicts:
             listings_data.append({
                 "id": listing.id,
                 "name": listing.name,
@@ -312,7 +397,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                 "is_available": listing.is_available,
                 "is_grouped": False,
                 "last_seen_at": listing.last_seen_at,
-                "current_price": snapshots[-1].price,
+                "current_price": snaps_dicts[-1]["price"],
                 "watches": [
                     {
                         "id": w.id,
@@ -324,10 +409,10 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
                     for w in watches
                 ],
                 "snapshots": snaps_dicts,
-                "snapshot_count": len(snapshots),
+                "snapshot_count": len(snaps_dicts),
             })
 
-        if len(snapshots) >= 2:
+        if len(snaps_dicts) >= 2:
             snapshot_chart_data.append({
                 "listing_id": listing.id,
                 "name": listing.name,
