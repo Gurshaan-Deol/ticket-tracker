@@ -426,8 +426,11 @@
       btn.style.display = 'none';
     });
   });
-  document.getElementById('actions-th').style.display =
-    !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
+  var actionsTh = document.getElementById('actions-th');
+  if (actionsTh) {
+    actionsTh.style.display =
+      !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
+  }
 
   document.querySelectorAll('.qty-filter-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -471,7 +474,8 @@
       renderUnavailableSections();
 
       if (activeQtyFilter !== 'all') {
-        document.getElementById('actions-th').style.display = '';
+        var actionsTh = document.getElementById('actions-th');
+        if (actionsTh) actionsTh.style.display = '';
         document.querySelectorAll('.actions-td').forEach(function(td) {
           td.style.display = '';
           td.querySelectorAll('.set-watch-btn, .grouped-set-watch-btn').forEach(function(btn) {
@@ -486,8 +490,11 @@
             btn.style.display = 'none';
           });
         });
-        document.getElementById('actions-th').style.display =
-          !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
+        var actionsTh = document.getElementById('actions-th');
+        if (actionsTh) {
+          actionsTh.style.display =
+            !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
+        }
       }
     });
   });

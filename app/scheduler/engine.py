@@ -213,17 +213,22 @@ async def run_availability_check(event_id: int) -> None:
 
                 try:
                     await fire_availability_alert(watch, event, current_price)
-                    session.add(AlertHistoryLog(
-                        event_id=event.id,
-                        event_name=event.name,
-                        section_name=watch.section_name,
-                        quantity=watch.quantity,
-                        price_at_alert=current_price,
-                        target_price=watch.target_price,
-                        alerted_at=now,
-                    ))
                 except Exception:
-                    raise
+                    logger.error(
+                        "fire_availability_alert failed for watch %d (event %d)",
+                        watch.id, event_id, exc_info=True,
+                    )
+                    continue
+
+                session.add(AlertHistoryLog(
+                    event_id=event.id,
+                    event_name=event.name,
+                    section_name=watch.section_name,
+                    quantity=watch.quantity,
+                    price_at_alert=current_price,
+                    target_price=watch.target_price,
+                    alerted_at=now,
+                ))
                 watch.last_alerted_at = now
 
             await session.commit()
@@ -394,6 +399,12 @@ async def run_watch_job(watch_id: int) -> None:
                 if not recent_result.scalar_one_or_none():
                     try:
                         channels_used = await fire_alert(watch, listing, event, current_price)
+                    except Exception:
+                        logger.error(
+                            "fire_alert failed for watch %d — alert may not have been sent",
+                            watch_id, exc_info=True,
+                        )
+                    else:
                         session.add(AlertLog(
                             listing_id=listing.id,
                             price_at_alert=current_price,
@@ -409,8 +420,13 @@ async def run_watch_job(watch_id: int) -> None:
                             target_price=watch.target_price,
                             alerted_at=now,
                         ))
-                    except Exception:
-                        raise
+                        try:
+                            await session.commit()
+                        except Exception:
+                            logger.error(
+                                "Failed to write alert records to DB for watch %d",
+                                watch_id, exc_info=True,
+                            )
         else:
             logger.info(
                 "Watch %d — listing '%s' not found in scraped results", watch_id, listing.name
