@@ -697,6 +697,32 @@ async def acknowledge_date_change(event_id: int, db: AsyncSession = Depends(get_
     return JSONResponse({"ok": True})
 
 
+@router.post("/events/{event_id}/dismiss-alert")
+async def dismiss_alert(event_id: int, db: AsyncSession = Depends(get_db)):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    if not event_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    listing_ids_result = await db.execute(
+        select(Listing.id)
+        .join(UserWatch, UserWatch.listing_id == Listing.id)
+        .where(Listing.event_id == event_id)
+        .where(UserWatch.is_active == True)
+    )
+    listing_ids = [row[0] for row in listing_ids_result.all()]
+
+    if listing_ids:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        await db.execute(
+            delete(AlertLog)
+            .where(AlertLog.listing_id.in_(listing_ids))
+            .where(AlertLog.alerted_at >= cutoff)
+        )
+        await db.commit()
+
+    return JSONResponse({"ok": True})
+
+
 @router.delete("/events/{event_id}")
 async def delete_event(event_id: int, db: AsyncSession = Depends(get_db)):
     event_result = await db.execute(select(Event).where(Event.id == event_id))

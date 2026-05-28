@@ -156,7 +156,7 @@
             <button class="grouped-set-watch-btn text-xs bg-green-800
                            hover:bg-green-700 text-white px-2 py-1
                            rounded transition">
-              Set Watch
+              {{ 'Update Watch' if l.watches else 'Set Watch' }}
             </button>
           </div>
         </td>
@@ -260,7 +260,7 @@
           <div class="flex gap-2 flex-wrap">
             <button class="set-watch-btn text-xs bg-green-800 hover:bg-green-700 text-white px-2 py-1 rounded transition"
                     data-listing-id="{{ l.id }}">
-              Set Watch
+              {{ 'Update Watch' if l.watches else 'Set Watch' }}
             </button>
             {% for w in l.watches %}
             <button class="remove-watch-btn text-xs bg-red-900 hover:bg-red-800 text-white px-2 py-1 rounded transition"
@@ -418,11 +418,16 @@
   // ── Quantity filter pills ────────────────────────────────────────────────────
   var activeQtyFilter = 'all';
 
-  // Hide Actions column on page load (only visible when a qty filter is active)
-  document.getElementById('actions-th').style.display = 'none';
+  // On page load (filter = 'all'): show Remove Watch buttons, hide Set Watch buttons
   document.querySelectorAll('.actions-td').forEach(function(td) {
-    td.style.display = 'none';
+    var hasRemove = !!td.querySelector('.remove-watch-btn');
+    td.style.display = hasRemove ? '' : 'none';
+    td.querySelectorAll('.set-watch-btn, .grouped-set-watch-btn').forEach(function(btn) {
+      btn.style.display = 'none';
+    });
   });
+  document.getElementById('actions-th').style.display =
+    !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
 
   document.querySelectorAll('.qty-filter-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -465,11 +470,25 @@
 
       renderUnavailableSections();
 
-      var showActions = activeQtyFilter !== 'all';
-      document.getElementById('actions-th').style.display = showActions ? '' : 'none';
-      document.querySelectorAll('.actions-td').forEach(function(td) {
-        td.style.display = showActions ? '' : 'none';
-      });
+      if (activeQtyFilter !== 'all') {
+        document.getElementById('actions-th').style.display = '';
+        document.querySelectorAll('.actions-td').forEach(function(td) {
+          td.style.display = '';
+          td.querySelectorAll('.set-watch-btn, .grouped-set-watch-btn').forEach(function(btn) {
+            btn.style.display = '';
+          });
+        });
+      } else {
+        document.querySelectorAll('.actions-td').forEach(function(td) {
+          var hasRemove = !!td.querySelector('.remove-watch-btn');
+          td.style.display = hasRemove ? '' : 'none';
+          td.querySelectorAll('.set-watch-btn, .grouped-set-watch-btn').forEach(function(btn) {
+            btn.style.display = 'none';
+          });
+        });
+        document.getElementById('actions-th').style.display =
+          !!document.querySelector('.actions-td .remove-watch-btn') ? '' : 'none';
+      }
     });
   });
 
@@ -598,8 +617,11 @@
           body: new FormData(this),
         });
         if (resp.ok) {
-          window.location.href = window.location.pathname +
-            (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
+          if (activeQtyFilter !== 'all') {
+            window.location.href = window.location.pathname + '?qty=' + activeQtyFilter;
+          } else {
+            window.location.reload();
+          }
         } else {
           const data = await resp.json();
           alert('Failed to save watch: ' + (data.detail || 'unknown error'));
@@ -617,8 +639,13 @@
       const watchId = this.dataset.watchId;
       try {
         const resp = await fetch('/watches/' + watchId, { method: 'DELETE' });
-        if (resp.ok) window.location.href = window.location.pathname +
-          (activeQtyFilter !== 'all' ? '#qty-' + activeQtyFilter : '');
+        if (resp.ok) {
+          if (activeQtyFilter !== 'all') {
+            window.location.href = window.location.pathname + '?qty=' + activeQtyFilter;
+          } else {
+            window.location.reload();
+          }
+        }
       } catch (e) {
         alert('Failed to remove watch: ' + e.message);
       }

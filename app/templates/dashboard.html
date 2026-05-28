@@ -98,7 +98,16 @@
         </span>
         {% endif %}
         {% if not e.is_ended and e.setup_complete and e.target_price is not none %}
+        {% if e.status == 'Alert Sent' %}
+        <span class="alert-sent-badge text-xs px-2 py-0.5 rounded-full border {{ badge_cls }} inline-flex items-center gap-1">
+          Alert Sent
+          <button class="dismiss-alert-btn hover:text-blue-200 leading-none"
+                  data-event-id="{{ e.id }}"
+                  aria-label="Dismiss">✕</button>
+        </span>
+        {% else %}
         <span class="text-xs px-2 py-0.5 rounded-full border {{ badge_cls }}">{{ e.status }}</span>
+        {% endif %}
         {% endif %}
       </div>
 
@@ -329,6 +338,20 @@
       try {
         await fetch('/events/' + eventId + '/acknowledge-date-change', { method: 'POST' });
         this.closest('.date-changed-badge').remove();
+      } catch (err) {
+        alert('Failed to dismiss: ' + err.message);
+      }
+    });
+  });
+
+  // Dismiss alert-sent badge
+  document.querySelectorAll('.dismiss-alert-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function (e) {
+      e.stopPropagation();
+      const eventId = this.dataset.eventId;
+      try {
+        await fetch('/events/' + eventId + '/dismiss-alert', { method: 'POST' });
+        this.closest('.alert-sent-badge').remove();
       } catch (err) {
         alert('Failed to dismiss: ' + err.message);
       }
