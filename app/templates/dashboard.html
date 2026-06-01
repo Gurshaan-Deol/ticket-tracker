@@ -71,15 +71,16 @@
 
   <div id="event-card-{{ e.id }}"
        class="event-card p-4 bg-gray-900 rounded-lg border
-              {{ 'border-red-900 opacity-50' if e.is_ended else 'border-gray-700' }}
-              flex items-center justify-between gap-4 transition
-              {{ 'opacity-40' if (not e.is_active and not e.is_ended) else '' }}"
+              {{ 'border-red-900' if e.is_ended else 'border-gray-700' }}
+              flex items-center justify-between gap-4 transition"
        data-date="{{ e.sort_date }}"
        data-price="{{ e.lowest_price if e.lowest_price is not none else 999999 }}"
        data-pct="{{ e.pct_to_target }}"
        data-name="{{ e.name | lower }}">
 
-    <div class="flex-1 min-w-0">
+    <div class="card-info flex-1 min-w-0
+                {{ 'opacity-50' if e.is_ended else '' }}
+                {{ 'opacity-40' if (not e.is_active and not e.is_ended) else '' }}">
       <!-- Name row -->
       <div class="flex items-center gap-2 flex-wrap">
         <span class="font-semibold">{{ e.name }}</span>
@@ -255,15 +256,16 @@
         const resp = await fetch('/events/' + eventId + '/toggle', { method: 'POST' });
         const data = await resp.json();
         const card = document.getElementById('event-card-' + eventId);
+        const info = card.querySelector('.card-info');
         const isNowActive = data.is_active;
         this.textContent = isNowActive ? 'Pause' : 'Resume';
         this.dataset.isActive = isNowActive ? 'true' : 'false';
         if (isNowActive) {
-          card.classList.remove('opacity-40');
+          info.classList.remove('opacity-40');
           const badge = card.querySelector('[data-paused-badge]');
           if (badge) badge.remove();
         } else {
-          card.classList.add('opacity-40');
+          info.classList.add('opacity-40');
         }
       } catch (e) {
         alert('Failed to toggle: ' + e.message);
