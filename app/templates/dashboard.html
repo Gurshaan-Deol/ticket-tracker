@@ -138,7 +138,11 @@
 
     <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
       {% if e.is_ended %}
-      <!-- Ended event — only allow deletion -->
+      <!-- Ended event — view history and remove -->
+      <a href="/events/{{ e.id }}"
+         class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm transition">
+        View
+      </a>
       <button class="delete-btn bg-red-900 hover:bg-red-800 text-white px-3 py-1.5 rounded text-sm transition"
               data-event-id="{{ e.id }}">
         Remove Event

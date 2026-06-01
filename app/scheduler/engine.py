@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models import AlertHistoryLog, AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
-from app.scraper.ticketmaster import EventEndedException, scrape_event, scrape_event_sync
+from app.scraper.ticketmaster import EventEndedException, SoldOutException, scrape_event, scrape_event_sync
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -181,6 +181,9 @@ async def run_availability_check(event_id: int) -> None:
                 event.is_active = False
                 await session.commit()
                 await _cancel_all_jobs_for_event(event_id)
+                return
+            except SoldOutException:
+                logger.info("Event %d is sold out — no availability update needed.", event_id)
                 return
 
             now = datetime.now(timezone.utc)

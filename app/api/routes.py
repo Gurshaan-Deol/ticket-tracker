@@ -612,6 +612,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
             "event_date": event_obj.event_date,
             "ticketmaster_url": event_obj.ticketmaster_url,
             "is_active": event_obj.is_active,
+            "is_ended": event_obj.is_ended,
             "quantity": event_obj.quantity,
             "notes": event_obj.notes,
         },

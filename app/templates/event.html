@@ -2,7 +2,8 @@
 {% block title %}{{ event.name }} — Ticket Tracker{% endblock %}
 
 {% block extra_head %}
-<script>const AI_ENABLED = {{ 'true' if ai_enabled else 'false' }};</script>
+<script>const AI_ENABLED = {{ 'true' if ai_enabled else 'false' }};
+const IS_ENDED = {{ 'true' if event.is_ended else 'false' }};</script>
 {% endblock %}
 
 {% block content %}
@@ -27,16 +28,25 @@
       </div>
     </div>
     <div class="flex items-center gap-3">
-      {% if not event.is_active %}
+      {% if not event.is_active and not event.is_ended %}
       <span class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full">Paused</span>
       {% endif %}
+      {% if not event.is_ended %}
       <button id="scrape-btn"
               class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm transition">
         Scrape Now
       </button>
+      {% endif %}
     </div>
   </div>
 </div>
+
+{% if event.is_ended %}
+<div class="mb-6 p-4 bg-red-950 border border-red-800 rounded-lg flex items-center gap-3">
+  <span class="text-red-400 font-bold text-base">!</span>
+  <p class="text-sm text-red-300 font-medium">This event has ended. Ticket sales are no longer active.</p>
+</div>
+{% endif %}
 
 <!-- Notes -->
 <div id="notes-section" class="mb-6 -mt-2">
@@ -116,7 +126,7 @@
         </th>
         <th class="px-4 py-3 font-medium">Your Target</th>
         <th class="px-4 py-3 font-medium">Interval</th>
-        <th class="px-4 py-3 font-medium" id="actions-th">Actions</th>
+        {% if not event.is_ended %}<th class="px-4 py-3 font-medium" id="actions-th">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody id="available-tbody">
@@ -151,6 +161,7 @@
         </td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
         <td class="px-4 py-3"><span class="text-gray-600">—</span></td>
+        {% if not event.is_ended %}
         <td class="px-4 py-3 actions-td">
           <div class="flex gap-2 flex-wrap">
             <button class="grouped-set-watch-btn text-xs bg-green-800
@@ -160,7 +171,9 @@
             </button>
           </div>
         </td>
+        {% endif %}
       </tr>
+      {% if not event.is_ended %}
       <tr class="border-b border-gray-800 bg-gray-900/60 hidden"
           id="grouped-watch-form-{{ loop.index }}">
         <td colspan="6" class="px-4 py-4">
@@ -204,6 +217,7 @@
           </form>
         </td>
       </tr>
+      {% endif %}
       {% else %}
       <!-- Main listing row -->
       <tr class="border-b border-gray-800 hover:bg-gray-900/40 transition" id="listing-row-{{ l.id }}"
@@ -256,6 +270,7 @@
             <span class="text-gray-600">—</span>
           {% endif %}
         </td>
+        {% if not event.is_ended %}
         <td class="px-4 py-3 actions-td">
           <div class="flex gap-2 flex-wrap">
             <button class="set-watch-btn text-xs bg-green-800 hover:bg-green-700 text-white px-2 py-1 rounded transition"
@@ -277,8 +292,10 @@
             {% endif %}
           </div>
         </td>
+        {% endif %}
       </tr>
 
+      {% if not event.is_ended %}
       <!-- Watch form row (hidden by default) -->
       <tr class="border-b border-gray-800 bg-gray-900/60 hidden" id="watch-form-{{ l.id }}">
         <td colspan="6" class="px-4 py-4">
@@ -320,6 +337,7 @@
           </form>
         </td>
       </tr>
+      {% endif %}
 
       <!-- AI summary row (only when AI enabled and enough snapshots) -->
       {% if ai_enabled and l.snapshot_count >= 5 %}
@@ -358,7 +376,7 @@
         <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-900 border-b border-gray-800">
           <th class="px-4 py-3 font-medium">Section</th>
           <th class="px-4 py-3 font-medium">Type</th>
-          <th class="px-4 py-3 font-medium">Actions</th>
+          {% if not event.is_ended %}<th class="px-4 py-3 font-medium">Actions</th>{% endif %}
         </tr>
       </thead>
       <tbody id="unavailable-tbody">
@@ -500,7 +518,8 @@
   });
 
   // ── Scrape Now ──────────────────────────────────────────────────────────────
-  document.getElementById('scrape-btn').addEventListener('click', async function () {
+  var _scrapeBtn = document.getElementById('scrape-btn');
+  if (_scrapeBtn) _scrapeBtn.addEventListener('click', async function () {
     window.startScrapeOverlay();
     this.textContent = 'Scraping…';
     this.disabled = true;
@@ -908,10 +927,12 @@
 
       var tr = document.createElement('tr');
       tr.className = 'border-b border-gray-800';
+      var actionCell = IS_ENDED ? '' :
+        '<td class="px-4 py-3"><button class="' + btnClass + '" data-section-name="' + escAttr(section.name) + '">' + watchLabels + '</button></td>';
       tr.innerHTML =
         '<td class="px-4 py-3 font-medium text-gray-400">' + displayName + '</td>' +
         '<td class="px-4 py-3">' + typeLabel + '</td>' +
-        '<td class="px-4 py-3"><button class="' + btnClass + '" data-section-name="' + escAttr(section.name) + '">' + watchLabels + '</button></td>';
+        actionCell;
       tbody.appendChild(tr);
     });
   }
