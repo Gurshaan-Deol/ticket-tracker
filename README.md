@@ -31,10 +31,10 @@ _All tracked events at a glance — status badges, current lowest price, and las
 ![Event detail page showing Available Now table with section listings, prices, and Set Watch buttons](docs/screenshots/event-detail.png)
 _Browse listings by section and quantity — set a price watch with one click_
 
-### Price History
+### Set ALert
 
 ![Inline Chart.js chart showing price history for a single listing over several days](docs/screenshots/price-history.png)
-_Every scrape is recorded — spot trends and decide when to buy_
+_Set your scrape intervals — Be alerted only at the price you set_
 
 ### Alert Log
 
