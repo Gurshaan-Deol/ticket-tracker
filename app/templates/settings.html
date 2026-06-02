@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Settings — Ticket Tracker{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl">
+  <h1 class="text-2xl font-bold mb-1">Settings</h1>
+  <p class="text-sm text-gray-500 mb-8">Configure default values used when creating new watches.</p>
+
+  {% if saved %}
+  <div class="mb-6 flex items-center gap-3 bg-green-950 border border-green-800 rounded-lg px-4 py-3">
+    <span class="text-green-400 text-sm font-medium">Settings saved.</span>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/settings">
+
+    <!-- Price Watch Defaults -->
+    <div class="mb-8">
+      <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-widest mb-4">
+        Price Watch Defaults
+      </h2>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg divide-y divide-gray-800">
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_refresh_interval_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default refresh interval
+            </label>
+            <p class="text-xs text-gray-500">How often to check for price changes on watched listings.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_refresh_interval_minutes"
+                   name="default_refresh_interval_minutes"
+                   value="{{ settings.default_refresh_interval_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_alert_cooldown_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default alert cooldown
+            </label>
+            <p class="text-xs text-gray-500">Minimum time between repeated alerts for the same listing.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_alert_cooldown_minutes"
+                   name="default_alert_cooldown_minutes"
+                   value="{{ settings.default_alert_cooldown_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Availability Watch Defaults -->
+    <div class="mb-8">
+      <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-widest mb-4">
+        Availability Watch Defaults
+      </h2>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg divide-y divide-gray-800">
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_availability_interval_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default check interval
+            </label>
+            <p class="text-xs text-gray-500">How often to check for availability on watched sections.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_availability_interval_minutes"
+                   name="default_availability_interval_minutes"
+                   value="{{ settings.default_availability_interval_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_availability_cooldown_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default alert cooldown
+            </label>
+            <p class="text-xs text-gray-500">Minimum time between repeated alerts for the same section.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_availability_cooldown_minutes"
+                   name="default_availability_cooldown_minutes"
+                   value="{{ settings.default_availability_cooldown_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Sold-Out Event Watch Defaults -->
+    <div class="mb-8">
+      <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-widest mb-4">
+        Sold-Out Event Watch Defaults
+      </h2>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg divide-y divide-gray-800">
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_any_listing_interval_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default check interval
+            </label>
+            <p class="text-xs text-gray-500">How often to poll for the first listing to appear on a sold-out event.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_any_listing_interval_minutes"
+                   name="default_any_listing_interval_minutes"
+                   value="{{ settings.default_any_listing_interval_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+        <div class="px-5 py-4 flex items-center justify-between gap-6">
+          <div class="flex-1">
+            <label for="default_any_listing_cooldown_minutes" class="block text-sm font-medium text-gray-200 mb-0.5">
+              Default alert cooldown
+            </label>
+            <p class="text-xs text-gray-500">Minimum time between repeated alerts once a listing has appeared.</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input type="number" id="default_any_listing_cooldown_minutes"
+                   name="default_any_listing_cooldown_minutes"
+                   value="{{ settings.default_any_listing_cooldown_minutes }}"
+                   min="5" required
+                   class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                          text-gray-200 focus:outline-none focus:border-green-500">
+            <span class="text-xs text-gray-500">min</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <button type="submit"
+            class="bg-green-700 hover:bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition">
+      Save Settings
+    </button>
+
+  </form>
+</div>
+{% endblock %}

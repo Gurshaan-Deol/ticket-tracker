@@ -9,5 +9,8 @@ Xvfb :99 -screen 0 1280x800x24 &
 export DISPLAY=:99
 sleep 2
 
+echo "Running database migrations..."
+alembic upgrade head
+
 echo "Starting Ticket Tracker..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info

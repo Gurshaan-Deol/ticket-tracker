@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database import AsyncSessionLocal
 from app.models import AlertHistoryLog, AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch
@@ -57,17 +57,20 @@ async def start_scheduler() -> None:
             schedule_watch_job(watch)
 
         events_result = await session.execute(
-            select(AvailabilityWatch.event_id)
+            select(
+                AvailabilityWatch.event_id,
+                func.min(AvailabilityWatch.check_interval_minutes).label("min_interval"),
+            )
             .where(AvailabilityWatch.is_active == True)
-            .distinct()
+            .group_by(AvailabilityWatch.event_id)
         )
-        av_event_ids = [row[0] for row in events_result.all()]
-        for event_id in av_event_ids:
-            schedule_availability_job(event_id)
+        av_event_rows = events_result.all()
+        for row in av_event_rows:
+            schedule_availability_job(row.event_id, row.min_interval)
 
     logger.info(
         "Scheduler started — %d watch job(s), %d availability job(s) scheduled",
-        len(watches), len(av_event_ids),
+        len(watches), len(av_event_rows),
     )
 
 
@@ -107,18 +110,18 @@ def remove_watch_job(watch_id: int) -> None:
         logger.warning("Job %s not found — nothing to remove", job_id)
 
 
-def schedule_availability_job(event_id: int) -> None:
+def schedule_availability_job(event_id: int, interval_minutes: int = 30) -> None:
     job_id = f"availability_{event_id}"
     scheduler.add_job(
         run_availability_check,
-        trigger=IntervalTrigger(minutes=30),
+        trigger=IntervalTrigger(minutes=interval_minutes),
         id=job_id,
         args=[event_id],
         replace_existing=True,
         misfire_grace_time=300,
         max_instances=1,
     )
-    logger.info("Scheduled availability job for event %d", event_id)
+    logger.info("Scheduled availability job for event %d (every %d min)", event_id, interval_minutes)
 
 
 def remove_availability_job(event_id: int) -> None:
@@ -197,6 +200,44 @@ async def run_availability_check(event_id: int) -> None:
                         scraped_map[key] = r.min_price
 
             for watch in watches:
+                if not watch.is_any_listing:
+                    continue
+                if not scraped_results:
+                    continue
+                cheapest = min(
+                    (r.min_price for r in scraped_results if r.min_price is not None),
+                    default=None,
+                )
+                if cheapest is None:
+                    continue
+                if watch.target_price is not None and cheapest > watch.target_price:
+                    continue
+                if watch.last_alerted_at is not None:
+                    cooldown_cutoff = now - timedelta(minutes=watch.alert_cooldown_minutes)
+                    if watch.last_alerted_at > cooldown_cutoff:
+                        continue
+                try:
+                    await fire_availability_alert(watch, event, cheapest)
+                except Exception:
+                    logger.error(
+                        "fire_availability_alert failed for any-listing watch %d",
+                        watch.id, exc_info=True,
+                    )
+                    continue
+                session.add(AlertHistoryLog(
+                    event_id=event.id,
+                    event_name=event.name,
+                    section_name="Any section",
+                    quantity=0,
+                    price_at_alert=cheapest,
+                    target_price=watch.target_price,
+                    alerted_at=now,
+                ))
+                watch.last_alerted_at = now
+
+            for watch in watches:
+                if watch.is_any_listing:
+                    continue
                 key = (watch.section_name.strip().lower(), watch.quantity)
                 if key not in scraped_map:
                     continue

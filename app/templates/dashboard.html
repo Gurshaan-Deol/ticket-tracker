@@ -89,6 +89,13 @@
         {% elif not e.is_active %}
         <span data-paused-badge class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Paused</span>
         {% endif %}
+        {% if not e.is_ended %}
+          {% if e.is_sold_out %}
+          <span class="text-xs bg-orange-950 text-orange-400 border border-orange-900 px-2 py-0.5 rounded-full">Sold Out</span>
+          {% else %}
+          <span class="text-xs bg-green-950 text-green-400 border border-green-900 px-2 py-0.5 rounded-full">Listings Available</span>
+          {% endif %}
+        {% endif %}
         {% if not e.is_ended and e.date_changed_at %}
         <span class="date-changed-badge text-xs bg-orange-950 text-orange-400 border border-orange-900 px-2 py-0.5 rounded-full inline-flex items-center gap-1"
               title="Was: {{ e.previous_event_date }}">

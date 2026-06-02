@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AlertHistoryLog, AlertLog, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
+from app.models import AlertHistoryLog, AlertLog, AppSettings, AvailabilityWatch, Event, Listing, PriceSnapshot, UserWatch, VenueSection
 from app.scraper.ticketmaster import EventEndedException, SoldOutException, fetch_venue_sections, scrape_event_sync as _scrape_sync
 from app.scheduler.engine import (
     _cancel_all_jobs_for_event,
@@ -321,6 +321,11 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "pct_to_target": pct_to_target,
             "date_changed_at": event.date_changed_at,
             "previous_event_date": event.previous_event_date,
+            "is_sold_out": (
+                event.is_active
+                and not event.is_ended
+                and lowest_price_by_event.get(event.id) is None
+            ),
         })
 
     return templates.TemplateResponse(request, "dashboard.html", {"events": events_list})
@@ -461,6 +466,7 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         select(AvailabilityWatch)
         .where(AvailabilityWatch.event_id == event_id)
         .where(AvailabilityWatch.is_active == True)
+        .where(AvailabilityWatch.is_any_listing == False)
         .order_by(AvailabilityWatch.section_name, AvailabilityWatch.quantity)
     )
     av_watches = av_watches_result.scalars().all()
@@ -603,6 +609,19 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
 
     unavailable_section_data = final_sections
 
+    any_watch_result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_any_listing == True)
+        .where(AvailabilityWatch.is_active == True)
+    )
+    any_watch = any_watch_result.scalar_one_or_none()
+
+    settings_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    app_settings = settings_result.scalar_one_or_none()
+    if app_settings is None:
+        app_settings = AppSettings(id=1)
+
     available_quantities = _parse_quantities(event_obj.available_quantities)
     return templates.TemplateResponse(request, "event.html", {
         "event": {
@@ -622,6 +641,19 @@ async def event_detail(event_id: int, request: Request, db: AsyncSession = Depen
         "ai_enabled": bool(get_settings().ai_api_key),
         "availability_watches": av_watches_data,
         "unavailable_section_data": unavailable_section_data,
+        "any_listing_watch": {
+            "id": any_watch.id,
+            "target_price": any_watch.target_price,
+            "check_interval_minutes": any_watch.check_interval_minutes,
+        } if any_watch else None,
+        "defaults": {
+            "refresh_interval_minutes": app_settings.default_refresh_interval_minutes,
+            "alert_cooldown_minutes": app_settings.default_alert_cooldown_minutes,
+            "availability_cooldown_minutes": app_settings.default_availability_cooldown_minutes,
+            "availability_interval_minutes": app_settings.default_availability_interval_minutes,
+            "any_listing_interval_minutes": app_settings.default_any_listing_interval_minutes,
+            "any_listing_cooldown_minutes": app_settings.default_any_listing_cooldown_minutes,
+        },
     })
 
 
@@ -1037,6 +1069,99 @@ async def create_availability_watch(
     return JSONResponse({"created": watch.id is None, "watch_id": watch.id})
 
 
+class AnyListingWatchRequest(BaseModel):
+    target_price: float | None = None
+    check_interval_minutes: int = 30
+
+
+@router.post("/events/{event_id}/availability-watches/any")
+async def create_any_listing_watch(
+    event_id: int,
+    body: AnyListingWatchRequest = None,
+    db: AsyncSession = Depends(get_db),
+):
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event = event_result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event.is_ended:
+        return JSONResponse(status_code=400, content={"error": "Event has ended"})
+    if not event.is_active:
+        return JSONResponse(status_code=400, content={"error": "Event is paused"})
+
+    active_result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_any_listing == True)
+        .where(AvailabilityWatch.is_active == True)
+    )
+    if active_result.scalar_one_or_none():
+        return JSONResponse(status_code=400, content={"error": "A watch already exists for this event"})
+
+    target_price = body.target_price if body else None
+    check_interval_minutes = body.check_interval_minutes if body else 30
+    if check_interval_minutes < 5:
+        return JSONResponse(status_code=400, content={"error": "Minimum check interval is 5 minutes"})
+
+    # Reuse an existing (possibly soft-deleted) row to avoid UNIQUE constraint conflict
+    any_result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_any_listing == True)
+    )
+    watch = any_result.scalar_one_or_none()
+    if watch:
+        watch.target_price = target_price
+        watch.alert_cooldown_minutes = 60
+        watch.check_interval_minutes = check_interval_minutes
+        watch.is_active = True
+    else:
+        watch = AvailabilityWatch(
+            event_id=event_id,
+            section_name="",
+            quantity=0,
+            target_price=target_price,
+            alert_cooldown_minutes=60,
+            check_interval_minutes=check_interval_minutes,
+            is_active=True,
+            is_any_listing=True,
+        )
+        db.add(watch)
+        await db.flush()
+    await db.commit()
+    schedule_availability_job(event_id, watch.check_interval_minutes)
+    return JSONResponse({"watch_id": watch.id})
+
+
+@router.delete("/events/{event_id}/availability-watches/any")
+async def delete_any_listing_watch(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_any_listing == True)
+        .where(AvailabilityWatch.is_active == True)
+    )
+    watch = result.scalar_one_or_none()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    watch.is_active = False
+    await db.commit()
+
+    remaining = await db.execute(
+        select(AvailabilityWatch)
+        .where(AvailabilityWatch.event_id == event_id)
+        .where(AvailabilityWatch.is_active == True)
+        .limit(1)
+    )
+    if not remaining.scalar_one_or_none():
+        remove_availability_job(event_id)
+
+    return JSONResponse({"deleted": True})
+
+
 @router.delete("/events/{event_id}/availability-watches/{watch_id}")
 async def delete_availability_watch(
     event_id: int,
@@ -1113,6 +1238,62 @@ async def alert_history(request: Request, db: AsyncSession = Depends(get_db)):
     )
     logs = result.scalars().all()
     return templates.TemplateResponse(request, "alert_history.html", {"logs": logs})
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, saved: str = "", db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    app_settings = result.scalar_one_or_none()
+    if app_settings is None:
+        app_settings = AppSettings(id=1)
+    return templates.TemplateResponse(request, "settings.html", {
+        "settings": app_settings,
+        "saved": saved == "1",
+    })
+
+
+@router.post("/settings")
+async def save_settings(
+    request: Request,
+    default_refresh_interval_minutes: int = Form(...),
+    default_alert_cooldown_minutes: int = Form(...),
+    default_availability_cooldown_minutes: int = Form(...),
+    default_availability_interval_minutes: int = Form(...),
+    default_any_listing_interval_minutes: int = Form(...),
+    default_any_listing_cooldown_minutes: int = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    for val in (
+        default_refresh_interval_minutes,
+        default_alert_cooldown_minutes,
+        default_availability_cooldown_minutes,
+        default_availability_interval_minutes,
+        default_any_listing_interval_minutes,
+        default_any_listing_cooldown_minutes,
+    ):
+        if val < 5:
+            raise HTTPException(status_code=422, detail="All intervals and cooldowns must be at least 5 minutes")
+
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    app_settings = result.scalar_one_or_none()
+    if app_settings is None:
+        app_settings = AppSettings(id=1)
+        db.add(app_settings)
+
+    app_settings.default_refresh_interval_minutes = default_refresh_interval_minutes
+    app_settings.default_alert_cooldown_minutes = default_alert_cooldown_minutes
+    app_settings.default_availability_cooldown_minutes = default_availability_cooldown_minutes
+    app_settings.default_availability_interval_minutes = default_availability_interval_minutes
+    app_settings.default_any_listing_interval_minutes = default_any_listing_interval_minutes
+    app_settings.default_any_listing_cooldown_minutes = default_any_listing_cooldown_minutes
+
+    await db.commit()
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 # ---------------------------------------------------------------------------

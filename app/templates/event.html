@@ -190,14 +190,14 @@ const IS_ENDED = {{ 'true' if event.is_ended else 'false' }};</script>
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Check every (min)</label>
               <input type="number" name="refresh_interval_minutes" min="5" required
-                     value="30"
+                     value="{{ defaults.refresh_interval_minutes }}"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
                             text-sm w-24 focus:outline-none focus:border-green-500">
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Alert cooldown (min)</label>
               <input type="number" name="alert_cooldown_minutes" min="5" required
-                     value="60"
+                     value="{{ defaults.alert_cooldown_minutes }}"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5
                             text-sm w-24 focus:outline-none focus:border-green-500">
             </div>
@@ -312,14 +312,14 @@ const IS_ENDED = {{ 'true' if event.is_ended else 'false' }};</script>
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Check every (min)</label>
               <input type="number" name="refresh_interval_minutes" min="5" required
-                     value="30"
+                     value="{{ defaults.refresh_interval_minutes }}"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
                             focus:outline-none focus:border-green-500">
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-xs text-gray-500">Alert cooldown (min)</label>
               <input type="number" name="alert_cooldown_minutes" min="5" required
-                     value="60"
+                     value="{{ defaults.alert_cooldown_minutes }}"
                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm w-24
                             focus:outline-none focus:border-green-500">
             </div>
@@ -396,6 +396,135 @@ const IS_ENDED = {{ 'true' if event.is_ended else 'false' }};</script>
     Click <strong class="text-gray-400">Scrape Now</strong> to manually check.
   </span>
 </p>
+
+{% if not event.is_ended and event.is_active %}
+<div class="max-w-md mx-auto mt-2 mb-8 p-5 bg-gray-900 border border-gray-700 rounded-lg">
+  <h3 class="text-sm font-semibold text-gray-200 mb-1">Get notified when tickets appear</h3>
+  <p class="text-xs text-gray-500 mb-4">We'll alert you the moment any resale listing shows up.</p>
+
+  <!-- Form shown when no active watch -->
+  <div id="any-watch-form"{% if any_listing_watch %} class="hidden"{% endif %}>
+    <div class="flex flex-wrap gap-3 items-end">
+      <div class="flex flex-col gap-1">
+        <label for="any-watch-price" class="text-xs text-gray-500">Only notify if under ($)</label>
+        <input type="number" id="any-watch-price" step="0.01" min="0.01"
+               placeholder="Any price"
+               class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-36
+                      focus:outline-none focus:border-green-500 text-gray-200">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="any-watch-interval" class="text-xs text-gray-500">Check every (min)</label>
+        <input type="number" id="any-watch-interval" min="5" value="{{ defaults.any_listing_interval_minutes }}"
+               placeholder="30"
+               class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-24
+                      focus:outline-none focus:border-green-500 text-gray-200">
+      </div>
+      <button id="set-any-watch-btn"
+              class="text-sm bg-green-800 hover:bg-green-700 text-white px-4 py-1.5 rounded transition">
+        Set Alert
+      </button>
+    </div>
+  </div>
+
+  <!-- Status shown when an active watch exists -->
+  <div id="any-watch-info"{% if not any_listing_watch %} class="hidden"{% endif %}>
+    <p id="any-watch-status" class="text-sm text-gray-300">
+      {% if any_listing_watch %}
+        {% if any_listing_watch.target_price %}
+          Watching for any tickets under <span class="font-mono text-green-400">${{ "%.2f" | format(any_listing_watch.target_price) }}</span>
+        {% else %}
+          Watching for any tickets at any price
+        {% endif %}
+        &nbsp;·&nbsp; Checking every <span id="any-watch-interval-display" class="font-mono text-gray-400">{{ any_listing_watch.check_interval_minutes }}</span> minutes
+      {% endif %}
+    </p>
+    <button id="remove-any-watch-btn"
+            class="mt-3 text-xs bg-red-900 hover:bg-red-800 text-white px-3 py-1.5 rounded transition">
+      Remove Alert
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var eventId = {{ event.id }};
+  var formDiv      = document.getElementById('any-watch-form');
+  var infoDiv      = document.getElementById('any-watch-info');
+  var statusEl     = document.getElementById('any-watch-status');
+  var intervalDisp = document.getElementById('any-watch-interval-display');
+  var setBtn       = document.getElementById('set-any-watch-btn');
+  var removeBtn    = document.getElementById('remove-any-watch-btn');
+  var priceInput    = document.getElementById('any-watch-price');
+  var intervalInput = document.getElementById('any-watch-interval');
+
+  if (setBtn) {
+    setBtn.addEventListener('click', async function () {
+      var priceVal    = priceInput    ? priceInput.value.trim()    : '';
+      var intervalVal = intervalInput ? intervalInput.value.trim() : '30';
+      var body = { check_interval_minutes: parseInt(intervalVal, 10) || 30 };
+      if (priceVal) body.target_price = parseFloat(priceVal);
+
+      setBtn.disabled = true;
+      setBtn.textContent = 'Setting…';
+
+      try {
+        var resp = await fetch('/events/' + eventId + '/availability-watches/any', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        var data = await resp.json();
+        if (resp.ok) {
+          var priceText = priceVal
+            ? 'Watching for any tickets under $' + parseFloat(priceVal).toFixed(2)
+            : 'Watching for any tickets at any price';
+          var intervalMinutes = body.check_interval_minutes;
+          if (statusEl) {
+            statusEl.innerHTML = priceText +
+              ' &nbsp;·&nbsp; Checking every <span id="any-watch-interval-display" class="font-mono text-gray-400">' +
+              intervalMinutes + '</span> minutes';
+          }
+          formDiv.classList.add('hidden');
+          infoDiv.classList.remove('hidden');
+        } else {
+          alert(data.error || 'Failed to set alert');
+        }
+      } catch (e) {
+        alert('Failed to set alert: ' + e.message);
+      }
+
+      setBtn.disabled = false;
+      setBtn.textContent = 'Set Alert';
+    });
+  }
+
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async function () {
+      removeBtn.disabled = true;
+      removeBtn.textContent = 'Removing…';
+
+      try {
+        var resp = await fetch('/events/' + eventId + '/availability-watches/any', { method: 'DELETE' });
+        if (resp.ok) {
+          infoDiv.classList.add('hidden');
+          formDiv.classList.remove('hidden');
+          if (priceInput)    priceInput.value    = '';
+          if (intervalInput) intervalInput.value = '30';
+        } else {
+          alert('Failed to remove alert');
+          removeBtn.disabled = false;
+          removeBtn.textContent = 'Remove Alert';
+        }
+      } catch (e) {
+        alert('Failed to remove alert: ' + e.message);
+        removeBtn.disabled = false;
+        removeBtn.textContent = 'Remove Alert';
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
 {% endif %}
 
 

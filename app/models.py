@@ -113,6 +113,12 @@ class AvailabilityWatch(Base):
     last_alerted_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    is_any_listing: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    check_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=30
+    )
 
     event: Mapped["Event"] = relationship(
         "Event", back_populates="availability_watches"
@@ -156,6 +162,21 @@ class AlertHistoryLog(Base):
     alerted_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     event: Mapped["Event"] = relationship("Event", back_populates="alert_history_logs")
+
+
+class AppSettings(Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    default_refresh_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    default_alert_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+
+    default_availability_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    default_availability_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+
+    default_any_listing_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    default_any_listing_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
 
 Index("ix_listings_event_id", Listing.event_id)
